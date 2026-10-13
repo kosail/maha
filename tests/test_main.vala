@@ -1,0 +1,24 @@
+int main (string[] args) {
+    // Isolate the XDG cache so scratch-file tests never touch the user's cache.
+    try {
+        string cache_home = GLib.DirUtils.make_tmp ("maha-test-cache-XXXXXX");
+        GLib.Environment.set_variable ("XDG_CACHE_HOME", cache_home, true);
+    } catch (GLib.Error e) {
+        // fall back to the real cache
+    }
+
+    GLib.Test.init (ref args);
+
+    // Recovery intentionally logs a warning; do not treat warnings as fatal.
+    GLib.Log.set_always_fatal (GLib.LogLevelFlags.LEVEL_ERROR);
+
+    Maha.register_document_tests ();
+    Maha.register_file_store_tests ();
+    Maha.register_recovery_tests ();
+    Maha.register_config_tests ();
+    Maha.register_auto_saver_tests ();
+    Maha.register_session_tests ();
+
+    GLib.Test.run ();
+    return 0;
+}
