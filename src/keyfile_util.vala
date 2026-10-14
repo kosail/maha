@@ -30,10 +30,12 @@ public string keyfile_unescape (string value) {
             sb.append_c (c);
             continue;
         }
-        i++;
-        if (i >= value.length) {
+        if (i + 1 >= value.length) {
+            // A lone trailing backslash is literal, not an escape introducer.
+            sb.append_c ('\\');
             break;
         }
+        i++;
         switch (value[i]) {
         case 'n': sb.append_c ('\n'); break;
         case 'r': sb.append_c ('\r'); break;

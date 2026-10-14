@@ -272,16 +272,18 @@ public class FileStore : GLib.Object {
             if (sync && Posix.fsync (fd) != 0) {
                 throw new GLib.FileError.FAILED ("cannot flush temporary file \"%s\": %s".printf (tmp, GLib.strerror (Posix.errno)));
             }
+            // Restore the destination's mode on the temporary file through the
+            // open descriptor (no path race). A brand-new file keeps the 0666
+            // set by create_temp (the umask applies).
+            if (exists) {
+                Posix.fchmod (fd, (Posix.mode_t) (st.st_mode & 07777));
+            }
         } catch (GLib.Error e) {
             Posix.close (fd);
             Posix.unlink (tmp);
             throw e;
         }
         Posix.close (fd);
-
-        if (exists) {
-            Posix.chmod (tmp, st.st_mode & 07777);
-        }
 
         if (GLib.FileUtils.rename (tmp, target) != 0) {
             Posix.unlink (tmp);
@@ -345,6 +347,15 @@ public class FileStore : GLib.Object {
         throw new GLib.FileError.FAILED ("cannot create a unique temporary file in \"%s\"".printf (dir));
     }
 
+    /**
+     * Write all of `contents` to `fd`.
+     *
+     * `contents` is NUL-free by construction: a Vala string is a C string, and
+     * every caller passes GTK buffer text, config or session data. (The
+     * corrupt-text reader strips at the first NUL, and the binary view
+     * substitutes U+FFFD.) So `data.length` - which is `strlen` - is the true
+     * byte count and no content can be truncated here.
+     */
     private static void write_all (int fd, string contents) throws GLib.Error {
         unowned uint8[] bytes = contents.data;
         uint8* ptr = (uint8*) bytes;

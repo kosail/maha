@@ -34,6 +34,26 @@ public class MainWindow : Adw.ApplicationWindow {
     private bool restoring = false;
     private bool shutting_down = false;
 
+    // Outcome of a save-failure recovery prompt.
+    private enum RecoveryAction { SAVED, DISCARDED, CANCELLED }
+    private delegate void SaveAsCallback (bool saved);
+    private delegate void RecoveryCallback (RecoveryAction action);
+
+    // State for resolving unsaved tabs before closing the window (quit or the
+    // close button). Held as fields, not captured by nested callbacks, so it
+    // survives the asynchronous save/recovery dialogs.
+    private GLib.GenericArray<EditorTab>? resolve_tabs;
+    private GLib.GenericArray<EditorTab>? resolve_discarded;
+    private uint resolve_index;
+    // Set while a resolved close is queued, so a further close request cannot
+    // start a second resolve in the gap before the idle runs.
+    private bool close_pending = false;
+
+    // Error messages are shown one at a time; a burst of failures must not
+    // stack modal dialogs on top of each other.
+    private GLib.Queue<string> pending_messages = new GLib.Queue<string> ();
+    private bool message_active = false;
+
     public MainWindow (Gtk.Application application, Config config, AutoSaver auto_saver, SessionStore session) {
         Object (application: application);
         this.config = config;
@@ -65,12 +85,36 @@ public class MainWindow : Adw.ApplicationWindow {
         update_title_widget ();
 
         this.close_request.connect (() => {
-            if (flush_all ()) {
-                mark_shutting_down ();
+            // Already confirmed and closing: let it proceed.
+            if (this.shutting_down) {
                 return false;
             }
-            show_message ("Could not save all tabs; the window was kept open to avoid data loss.");
-            return true;
+            // A close is already being resolved, or a resolved close is queued
+            // in the gap before its idle runs; ignore this request rather than
+            // starting a second one.
+            if (this.close_pending || this.resolve_tabs != null) {
+                return true;
+            }
+
+            // Fast path: save every dirty tab in place, synchronously. This
+            // never calls back into `close_request`, so returning false here is
+            // safe (no nested close).
+            var tabs = collect_dirty_tabs ();
+            uint i = 0;
+            while (i < tabs.length) {
+                var tab = tabs.get (i);
+                if (tab.save_now ()) {
+                    i++;
+                    continue;
+                }
+                // A tab could not be written: stop the close and resolve the
+                // rest asynchronously (the user may Save As, discard or cancel).
+                start_resolve (tabs, i);
+                return true;
+            }
+
+            mark_shutting_down ();
+            return false;
         });
     }
 
@@ -190,8 +234,11 @@ public class MainWindow : Adw.ApplicationWindow {
         }
         if (tab.document.is_new) {
             prompt_save_as (tab);
-        } else {
-            tab.save_now ();
+        } else if (!tab.save_now ()) {
+            // The file could not be written in place (read-only, or no write
+            // permission on its folder). Offer to save a copy; there is nothing
+            // to discard here, since the user explicitly asked to save.
+            prompt_save_recovery (tab, false, null);
         }
     }
 
@@ -247,34 +294,137 @@ public class MainWindow : Adw.ApplicationWindow {
         }
     }
 
-    /** Save every tab immediately. Returns false if any save failed. */
-    public bool flush_all () {
-        bool all_saved = true;
+    /** Every tab with unsaved changes, in view order. */
+    private GLib.GenericArray<EditorTab> collect_dirty_tabs () {
+        var tabs = new GLib.GenericArray<EditorTab> ();
         int pages = this.tab_view.get_n_pages ();
         for (int i = 0; i < pages; i++) {
             var tab = this.tab_view.get_nth_page (i).get_child () as EditorTab;
-            if (tab != null && !tab.save_now ()) {
-                all_saved = false;
+            if (tab != null && tab.document.dirty) {
+                tabs.add (tab);
             }
         }
-        return all_saved;
-    }
-
-    public void show_message (string message) {
-        var dialog = new Gtk.AlertDialog ("%s", message);
-        dialog.set_modal (true);
-        dialog.show (this);
+        return tabs;
     }
 
     /**
-     * Save the tab to a file. When `closing_page` is set the page is closed on
-     * success and kept open otherwise (used by the close prompt).
+     * Resolve the unsaved tabs starting at `index`, then close the window once
+     * they are all saved or discarded. A cancelled prompt abandons the resolve
+     * (the window is kept open).
      */
-    private void prompt_save_as (EditorTab tab, Adw.TabPage? closing_page = null) {
+    private void start_resolve (GLib.GenericArray<EditorTab> tabs, uint index) {
+        this.resolve_tabs = tabs;
+        this.resolve_discarded = null;
+        this.resolve_index = index;
+        resolve_step ();
+    }
+
+    private void resolve_step () {
+        var tabs = this.resolve_tabs;
+        if (tabs == null) {
+            return;
+        }
+        uint count = tabs.length;
+        while (this.resolve_index < count) {
+            var tab = tabs.get (this.resolve_index);
+            // A new document saves to its scratch file (always writable); an
+            // existing one saves in place and may fail.
+            if (!tab.document.dirty || tab.save_now ()) {
+                this.resolve_index++;
+                continue;
+            }
+            prompt_save_recovery (tab, true, (action) => {
+                if (action == RecoveryAction.CANCELLED) {
+                    finish_resolve (false);
+                } else {
+                    // Remember a discarded tab; it is only actually discarded
+                    // once the whole close commits, so an abort elsewhere
+                    // leaves its unsaved changes intact.
+                    if (action == RecoveryAction.DISCARDED) {
+                        if (this.resolve_discarded == null) {
+                            this.resolve_discarded = new GLib.GenericArray<EditorTab> ();
+                        }
+                        this.resolve_discarded.add (tab);
+                    }
+                    this.resolve_index++;
+                    resolve_step ();
+                }
+            });
+            return;
+        }
+        finish_resolve (true);
+    }
+
+    private void finish_resolve (bool proceed) {
+        var discarded = this.resolve_discarded;
+        this.resolve_tabs = null;
+        this.resolve_discarded = null;
+        this.resolve_index = 0;
+
+        // A cancelled prompt abandons the close; nothing was mutated during the
+        // resolve, so every tab keeps its unsaved changes.
+        if (!proceed) {
+            return;
+        }
+
+        // Apply the discards only now that the close is certain: cancel each
+        // tab's pending autosave so it cannot resurrect the discarded file.
+        if (discarded != null) {
+            for (uint i = 0; i < discarded.length; i++) {
+                discarded.get (i).discard_scratch ();
+            }
+        }
+
+        // Defer the close to an idle tick. If every remaining save completed
+        // without a prompt, we would otherwise call close() while still inside
+        // the close-request signal emission, re-entering it. `close_pending`
+        // rejects any close request that arrives before this idle runs.
+        this.close_pending = true;
+        GLib.Idle.add (() => {
+            this.close_pending = false;
+            if (!this.shutting_down) {
+                mark_shutting_down ();
+                this.close ();
+            }
+            return GLib.Source.REMOVE;
+        });
+    }
+
+    public void show_message (string message) {
+        this.pending_messages.push_tail (message);
+        if (!this.message_active) {
+            show_next_message ();
+        }
+    }
+
+    private void show_next_message () {
+        // Never raise a dialog once the window is tearing down.
+        if (this.shutting_down || this.pending_messages.is_empty ()) {
+            this.message_active = false;
+            return;
+        }
+        this.message_active = true;
+        string text = this.pending_messages.pop_head ();
+        var dialog = new Adw.AlertDialog ("Heads up", text);
+        dialog.add_response ("ok", "OK");
+        dialog.set_default_response ("ok");
+        dialog.set_close_response ("ok");
+        dialog.choose.begin (this, null, (obj, res) => {
+            dialog.choose.end (res);
+            show_next_message ();
+        });
+    }
+
+    /**
+     * Save the tab to a file, reporting success through `on_finished` (when
+     * provided). Used for a brand-new document, and to save a copy elsewhere
+     * when an in-place save failed.
+     */
+    private void prompt_save_as (EditorTab tab, owned SaveAsCallback? on_finished = null) {
         var dialog = new Gtk.FileDialog ();
         dialog.set_title ("Save File");
         dialog.set_accept_label ("Save");
-        dialog.set_initial_name ("untitled.txt");
+        dialog.set_initial_name (tab.document.is_new ? "untitled.txt" : tab.document.display_name);
         dialog.save.begin (this, null, (obj, res) => {
             bool saved = false;
             try {
@@ -306,11 +456,51 @@ public class MainWindow : Adw.ApplicationWindow {
                 }
             }
 
-            if (closing_page != null) {
-                if (saved) {
-                    record_closed_tab (tab.document);
+            if (on_finished != null) {
+                on_finished (saved);
+            }
+        });
+    }
+
+    /**
+     * Offer a way out when a file could not be written in place (read-only, or
+     * no permission on its folder): save a copy elsewhere, discard the changes,
+     * or cancel. `allow_discard` is false for an explicit Save, where there is
+     * nothing to discard.
+     */
+    private void prompt_save_recovery (EditorTab tab, bool allow_discard, owned RecoveryCallback? on_result) {
+        var dialog = new Adw.AlertDialog (
+            "Couldn't save changes",
+            "Couldn't save \"%s\". It may be read-only, or you may not have permission to write in its folder.".printf (tab.document.display_name));
+        dialog.add_response ("cancel", "Cancel");
+        if (allow_discard) {
+            dialog.add_response ("discard", "Discard Changes");
+        }
+        dialog.add_response ("save-as", "Save As…");
+        dialog.set_response_appearance ("save-as", Adw.ResponseAppearance.SUGGESTED);
+        if (allow_discard) {
+            dialog.set_response_appearance ("discard", Adw.ResponseAppearance.DESTRUCTIVE);
+        }
+        dialog.set_default_response ("save-as");
+        dialog.set_close_response ("cancel");
+
+        dialog.choose.begin (this, null, (obj, res) => {
+            string response = dialog.choose.end (res);
+
+            if (response == "save-as") {
+                prompt_save_as (tab, (saved) => {
+                    if (on_result != null) {
+                        on_result (saved ? RecoveryAction.SAVED : RecoveryAction.CANCELLED);
+                    }
+                });
+            } else if (response == "discard") {
+                if (on_result != null) {
+                    on_result (RecoveryAction.DISCARDED);
                 }
-                this.tab_view.close_page_finish (closing_page, saved);
+            } else {
+                if (on_result != null) {
+                    on_result (RecoveryAction.CANCELLED);
+                }
             }
         });
     }
@@ -335,7 +525,12 @@ public class MainWindow : Adw.ApplicationWindow {
             string response = dialog.choose.end (res);
 
             if (response == "save") {
-                prompt_save_as (tab, page);
+                prompt_save_as (tab, (saved) => {
+                    if (saved) {
+                        record_closed_tab (tab.document);
+                    }
+                    this.tab_view.close_page_finish (page, saved);
+                });
             } else if (response == "discard") {
                 tab.discard_scratch ();
                 this.tab_view.close_page_finish (page, true);
@@ -415,9 +610,10 @@ public class MainWindow : Adw.ApplicationWindow {
     }
 
     /**
-     * Handle a close request for a tab. Saved files and empty new tabs close
-     * immediately; a new tab with unsaved content is resolved by a prompt,
-     * which finishes the close asynchronously.
+     * Handle a close request for a tab. New tabs are prompted when they have
+     * content and otherwise dropped; existing files are saved in place when
+     * modified, falling back to a recovery prompt if the write fails. Either
+     * prompt finishes the close asynchronously.
      */
     private bool on_close_page (Adw.TabPage page) {
         var tab = page.get_child () as EditorTab;
@@ -426,22 +622,36 @@ public class MainWindow : Adw.ApplicationWindow {
             return true;
         }
 
-        if (tab.has_unsaved_content ()) {
-            prompt_close_unsaved (tab, page);
+        if (tab.document.is_new) {
+            if (tab.has_unsaved_content ()) {
+                prompt_close_unsaved (tab, page);
+            } else {
+                tab.discard_scratch ();
+                this.tab_view.close_page_finish (page, true);
+            }
             return true;
         }
 
-        bool ok = tab.save_now ();
-        if (ok) {
-            if (tab.document.is_new) {
-                tab.discard_scratch ();
-            } else {
-                record_closed_tab (tab.document);
-            }
-        } else {
-            show_message ("Could not save \"%s\". The tab was kept open.".printf (tab.document.display_name));
+        if (!tab.document.dirty) {
+            record_closed_tab (tab.document);
+            this.tab_view.close_page_finish (page, true);
+            return true;
         }
-        this.tab_view.close_page_finish (page, ok);
+
+        if (tab.save_now ()) {
+            record_closed_tab (tab.document);
+            this.tab_view.close_page_finish (page, true);
+        } else {
+            prompt_save_recovery (tab, true, (action) => {
+                if (action == RecoveryAction.DISCARDED) {
+                    tab.discard_scratch ();
+                }
+                if (action != RecoveryAction.CANCELLED) {
+                    record_closed_tab (tab.document);
+                }
+                this.tab_view.close_page_finish (page, action != RecoveryAction.CANCELLED);
+            });
+        }
         return true;
     }
 

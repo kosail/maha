@@ -41,6 +41,16 @@ public class EditorTab : Gtk.Box, TextSource {
 
         this.view.buffer.changed.connect (on_changed);
 
+        // Keep GTK's "modified since last save" flag and the document's dirty
+        // flag in lockstep. Whenever the document is persisted (manually or by
+        // the autosaver), clear the buffer's modified state, so that undoing
+        // back to the saved text reports the document as clean.
+        this.document.notify["dirty"].connect (() => {
+            if (!this.document.dirty) {
+                this.view.buffer.set_modified (false);
+            }
+        });
+
         if (notice != null) {
             var banner = new Adw.Banner ((!) notice);
             banner.set_revealed (true);
@@ -122,8 +132,15 @@ public class EditorTab : Gtk.Box, TextSource {
         if (loading || document.read_only) {
             return;
         }
-        document.dirty = true;
-        auto_saver.schedule (document, this);
+        // Mirror GTK's own modified state (it resets to false when the buffer
+        // returns to the last saved text); do not force dirty on every change,
+        // or an undo back to the original would still count as unsaved.
+        document.dirty = view.buffer.get_modified ();
+        if (document.dirty) {
+            auto_saver.schedule (document, this);
+        } else {
+            auto_saver.cancel (document);
+        }
     }
 }
 

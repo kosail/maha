@@ -94,17 +94,6 @@ public class Application : Adw.Application {
         return null;
     }
 
-    private bool flush_all_windows () {
-        bool all_saved = true;
-        foreach (var candidate in get_windows ()) {
-            var window = candidate as MainWindow;
-            if (window != null && !window.flush_all ()) {
-                all_saved = false;
-            }
-        }
-        return all_saved;
-    }
-
     private void on_new () {
         var window = active_window as MainWindow;
         if (window == null) {
@@ -145,22 +134,24 @@ public class Application : Adw.Application {
     }
 
     private void on_quit () {
-        if (flush_all_windows ()) {
-            // Mark windows before quitting so their teardown does not rewrite
-            // (and effectively clear) the saved session.
-            foreach (var candidate in get_windows ()) {
-                var window = candidate as MainWindow;
-                if (window != null) {
-                    window.mark_shutting_down ();
-                }
+        // Close every window through the normal close path, which resolves any
+        // unsaved tabs (saving, or asking the user) before the window closes.
+        // The application quits when the last window is gone; a cancelled
+        // prompt leaves its window open. Collect first: closing mutates the
+        // window list.
+        var windows = new GLib.GenericArray<MainWindow> ();
+        foreach (var candidate in get_windows ()) {
+            var window = candidate as MainWindow;
+            if (window != null) {
+                windows.add (window);
             }
+        }
+        if (windows.length == 0) {
             quit ();
             return;
         }
-
-        var window = existing_window ();
-        if (window != null) {
-            window.show_message ("Could not save all files; quit was cancelled to avoid data loss.");
+        foreach (var window in windows) {
+            window.close ();
         }
     }
 }

@@ -19,6 +19,7 @@ int main (string[] args) {
     Maha.register_recovery_tests ();
     Maha.register_binary_tests ();
     Maha.register_config_tests ();
+    Maha.register_keyfile_tests ();
     Maha.register_auto_saver_tests ();
     Maha.register_session_tests ();
     Maha.register_reopen_tests ();
