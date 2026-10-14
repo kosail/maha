@@ -103,6 +103,24 @@ meson test -C build
 
 The core suite has 35 tests covering document state, atomic I/O, corruption recovery, config parsing, autosave, and session handling. There is also a headless GUI smoke test that launches the real binary under Xvfb and sends `Ctrl+S`, which guards the GTK shortcut controller that the unit tests cannot reach.
 
+## Troubleshooting
+
+### Flickering white specks on the transparent window
+
+On some Wayland setups (notably AMD GPUs with Mesa), GTK's Vulkan renderer can present visual artifacts (small flickering white points) in the non-opaque regions of a translucent window. maha is affected because its whole window gets translucent when you set a value lower than 1.0 in the config file.
+
+The workaround as for now is to disable the Vulkan renderer's damage-region ("incremental") present (I got this solution from the gnome docs):
+
+```sh
+GDK_VULKAN_DISABLE=incremental-present maha
+```
+
+To make it permanent, put it in the desktop entry's `Exec` line
+(`Exec=env GDK_VULKAN_DISABLE=incremental-present maha`) or export it in your
+session environment. The CPU renderer also avoids it (`GSK_RENDERER=cairo maha`),
+and so does setting `transparency=1.0`, since the window is then opaque.
+
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
