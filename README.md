@@ -17,6 +17,13 @@ Though the best editor I've been using that fit my needs has been VS Code, I wan
 But I have to be honest with you: I needed this app, but I don't have for it... at least for these months. Thus, I built it with heavy AI assistance, then reviewed, tested, and debugged by myself. The design decisions below (atomic writes, corruption recovery, session handling) came out from my own needs. Everything here is also modular, and on any issue it arises, fixes will be cheap and easy.
 
 
+> [!NOTE]
+> Note that blur is something applied by the compositor of your desktop environment,
+> not something I can bundle or control from maha. I can only add transparency support.
+>
+> For blur, check on your specific desktop environment.
+> The images below are KDE Plasma 6 + better-blur-dx plugin
+
 ![Screenshot 1, on KDE Plasma with blur plugin](.github/images/screenshot1.webp)
 ![Screenshot 2, on KDE Plasma with blur plugin](.github/images/screenshot2.webp)
 
