@@ -5,6 +5,8 @@ namespace Maha {
 public void register_session_tests () {
     GLib.Test.add_func ("/session/roundtrip", test_session_roundtrip);
     GLib.Test.add_func ("/session/scratch_roundtrip", test_scratch_roundtrip);
+    GLib.Test.add_func ("/session/empty_list", test_empty_list);
+    GLib.Test.add_func ("/session/legacy_single", test_legacy_single);
     GLib.Test.add_func ("/session/legacy_raw_path", test_legacy_raw_path);
     GLib.Test.add_func ("/session/missing", test_missing_file);
 }
@@ -14,12 +16,19 @@ private void test_session_roundtrip () {
     var path = GLib.Path.build_filename (dir, "session");
 
     var store = new SessionStore (path);
+    assert (store.load ().tabs.length == 0);
 
-    assert (store.load_last_file () == null);
+    var tabs = new GLib.GenericArray<SessionStore.Tab> ();
+    tabs.add (new SessionStore.Tab (SessionStore.KIND_FILE, "/tmp/some/file.txt"));
+    tabs.add (new SessionStore.Tab (SessionStore.KIND_FILE, "/tmp/other.txt"));
+    store.save (tabs, 1);
 
-    store.save_last_file ("/tmp/some/file.txt");
-    assert (store.load_last_file () == "/tmp/some/file.txt");
-    assert (store.load_last_scratch () == null);
+    var state = store.load ();
+    assert (state.tabs.length == 2);
+    assert (state.tabs.get (0).kind == SessionStore.KIND_FILE);
+    assert (state.tabs.get (0).value == "/tmp/some/file.txt");
+    assert (state.tabs.get (1).value == "/tmp/other.txt");
+    assert (state.active == 1);
 }
 
 private void test_scratch_roundtrip () {
@@ -28,18 +37,47 @@ private void test_scratch_roundtrip () {
 
     var store = new SessionStore (path);
 
-    store.save_last_scratch ("uuid-1234");
-    assert (store.load_last_scratch () == "uuid-1234");
-    assert (store.load_last_file () == null);
+    var tabs = new GLib.GenericArray<SessionStore.Tab> ();
+    tabs.add (new SessionStore.Tab (SessionStore.KIND_SCRATCH, "uuid-1234"));
+    tabs.add (new SessionStore.Tab (SessionStore.KIND_FILE, "/tmp/real.txt"));
+    store.save (tabs, 0);
 
-    // Saving a real file supersedes the scratch reference.
-    store.save_last_file ("/tmp/real.txt");
-    assert (store.load_last_file () == "/tmp/real.txt");
-    assert (store.load_last_scratch () == null);
+    var state = store.load ();
+    assert (state.tabs.length == 2);
+    assert (state.tabs.get (0).kind == SessionStore.KIND_SCRATCH);
+    assert (state.tabs.get (0).value == "uuid-1234");
+    assert (state.tabs.get (1).kind == SessionStore.KIND_FILE);
+    assert (state.active == 0);
 
     store.clear ();
-    assert (store.load_last_file () == null);
-    assert (store.load_last_scratch () == null);
+    assert (store.load ().tabs.length == 0);
+}
+
+private void test_empty_list () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "session");
+
+    var store = new SessionStore (path);
+    store.save (new GLib.GenericArray<SessionStore.Tab> (), 0);
+
+    // An empty (but valid) session must not be mistaken for a bare path.
+    assert (store.load ().tabs.length == 0);
+}
+
+private void test_legacy_single () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "session");
+
+    try {
+        GLib.FileUtils.set_contents (path, "[last]\nkind=file\nvalue=/tmp/old.txt\n");
+    } catch (GLib.Error e) {
+        GLib.Test.fail ();
+    }
+
+    var state = new SessionStore (path).load ();
+    assert (state.tabs.length == 1);
+    assert (state.tabs.get (0).kind == SessionStore.KIND_FILE);
+    assert (state.tabs.get (0).value == "/tmp/old.txt");
 }
 
 private void test_legacy_raw_path () {
@@ -52,16 +90,17 @@ private void test_legacy_raw_path () {
         GLib.Test.fail ();
     }
 
-    var store = new SessionStore (path);
-    assert (store.load_last_file () == "/tmp/legacy.txt");
-    assert (store.load_last_scratch () == null);
+    var state = new SessionStore (path).load ();
+    assert (state.tabs.length == 1);
+    assert (state.tabs.get (0).kind == SessionStore.KIND_FILE);
+    assert (state.tabs.get (0).value == "/tmp/legacy.txt");
 }
 
 private void test_missing_file () {
     var dir = make_tmp_dir ();
     var path = GLib.Path.build_filename (dir, "does-not-exist");
 
-    assert (new SessionStore (path).load_last_file () == null);
+    assert (new SessionStore (path).load ().tabs.length == 0);
 }
 
 }

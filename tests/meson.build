@@ -6,6 +6,7 @@ test_sources = files(
   'test_config.vala',
   'test_auto_saver.vala',
   'test_session.vala',
+  'test_reopen.vala',
   'test_main.vala',
 )
 

@@ -1,5 +1,11 @@
 namespace Maha {
 
+// The Vala binding for libadwaita omits `adw_tab_view_close_page` because its
+// name collides with the `close_page` signal. Bind it directly so the window
+// can request a close (which re-enters `on_close_page`).
+[CCode (cname = "adw_tab_view_close_page")]
+extern void tab_view_close_page (Adw.TabView view, Adw.TabPage page);
+
 /**
  * The single application window.
  *
@@ -12,12 +18,17 @@ public class MainWindow : Adw.ApplicationWindow {
     private Config config;
     private AutoSaver auto_saver;
     private SessionStore session;
-    private ThemeController theme;
     private Adw.TabView tab_view;
     private Adw.TabBar tab_bar;
     private Adw.HeaderBar header;
     private Gtk.Label single_title;
     private Adw.ToolbarView toolbar_view;
+    private ReopenStack reopen_stack = new ReopenStack ();
+
+    // Suppress session writes while restoring the previous session and while
+    // the window is being torn down (page removal fires the same signals).
+    private bool restoring = false;
+    private bool shutting_down = false;
 
     public MainWindow (Gtk.Application application, Config config, AutoSaver auto_saver, SessionStore session) {
         Object (application: application);
@@ -34,7 +45,7 @@ public class MainWindow : Adw.ApplicationWindow {
         this.tab_view.close_page.connect (on_close_page);
         this.tab_view.page_detached.connect (on_page_detached);
         this.tab_view.notify["selected-page"].connect (() => {
-            record_current_document ();
+            record_session ();
             update_title_widget ();
         });
         this.tab_view.notify["n-pages"].connect (update_title_widget);
@@ -42,19 +53,26 @@ public class MainWindow : Adw.ApplicationWindow {
         build_chrome ();
         install_shortcuts ();
 
-        this.theme = new ThemeController (config);
+        // The provider is owned by the display, so the controller itself need
+        // not be kept alive.
+        new ThemeController (config);
 
         restore_session ();
-        record_current_document ();
         update_title_widget ();
 
         this.close_request.connect (() => {
             if (flush_all ()) {
+                this.shutting_down = true;
                 return false;
             }
             show_message ("Could not save all tabs; the window was kept open to avoid data loss.");
             return true;
         });
+    }
+
+    /** Mark the window as closing so teardown does not rewrite the session. */
+    public void mark_shutting_down () {
+        this.shutting_down = true;
     }
 
     public void open_file_dialog () {
@@ -82,10 +100,16 @@ public class MainWindow : Adw.ApplicationWindow {
 
     /** Open `path` in a tab, focusing it if already open. Returns false on failure. */
     public bool open_path (string path) {
+        return open_path_page (path) != null;
+    }
+
+    /** Open `path`, returning its page (new or already-open), or null on failure. */
+    private Adw.TabPage? open_path_page (string path) {
         var existing = find_tab_by_path (path);
         if (existing != null) {
-            this.tab_view.set_selected_page (this.tab_view.get_page (existing));
-            return true;
+            var page = this.tab_view.get_page (existing);
+            this.tab_view.set_selected_page (page);
+            return page;
         }
 
         Document document;
@@ -95,16 +119,15 @@ public class MainWindow : Adw.ApplicationWindow {
             document = new Document (path, text);
         } catch (GLib.Error e) {
             show_message ("Could not open \"%s\": %s".printf (path, e.message));
-            return false;
+            return null;
         }
 
-        add_tab (document);
-        record_current_document ();
+        var page = add_tab (document);
 
         if (recovered) {
             show_message ("\"%s\" contained corrupt data; the recoverable part was restored and saved.".printf (path));
         }
-        return true;
+        return page;
     }
 
     /** Save the active tab: instant save, or a Save dialog for a new file. */
@@ -125,6 +148,33 @@ public class MainWindow : Adw.ApplicationWindow {
         add_empty_tab ();
     }
 
+    /**
+     * Close the active tab. Closing the last remaining tab closes the window
+     * (and, with it, the application), exactly like the tab's close button.
+     */
+    public void close_current_tab () {
+        var page = this.tab_view.get_selected_page ();
+        if (page != null) {
+            tab_view_close_page (this.tab_view, page);
+        }
+    }
+
+    /**
+     * Reopen the most recently closed file. Does nothing when there is none.
+     * A file that no longer exists falls back to a new empty tab.
+     */
+    public void reopen_last_closed_tab () {
+        var path = this.reopen_stack.pop ();
+        if (path == null) {
+            return;
+        }
+        if (GLib.FileUtils.test (path, GLib.FileTest.EXISTS)) {
+            open_path (path);
+        } else {
+            add_empty_tab ();
+        }
+    }
+
     /** Save every tab immediately. Returns false if any save failed. */
     public bool flush_all () {
         bool all_saved = true;
@@ -139,47 +189,86 @@ public class MainWindow : Adw.ApplicationWindow {
     }
 
     public void show_message (string message) {
-        GLib.warning ("maha: %s", message);
         var dialog = new Gtk.AlertDialog ("%s", message);
         dialog.set_modal (true);
         dialog.show (this);
     }
 
-    private void prompt_save_as (EditorTab tab) {
+    /**
+     * Save the tab to a file. When `closing_page` is set the page is closed on
+     * success and kept open otherwise (used by the close prompt).
+     */
+    private void prompt_save_as (EditorTab tab, Adw.TabPage? closing_page = null) {
         var dialog = new Gtk.FileDialog ();
         dialog.set_title ("Save File");
         dialog.set_accept_label ("Save");
         dialog.set_initial_name ("untitled.txt");
         dialog.save.begin (this, null, (obj, res) => {
+            bool saved = false;
             try {
                 var file = dialog.save.end (res);
-                if (file == null) {
-                    return;
+                if (file != null) {
+                    string? path = file.get_path ();
+                    if (path == null) {
+                        show_message ("Only local files can be saved.");
+                    } else {
+                        var other = find_tab_by_path (path);
+                        if (other != null && other != tab) {
+                            show_message ("\"%s\" is already open in another tab.".printf (path));
+                        } else if (!tab.save_as (path)) {
+                            show_message ("Could not save \"%s\".".printf (path));
+                        } else {
+                            var page = this.tab_view.get_page (tab);
+                            if (page != null) {
+                                page.set_title (trim_title (tab.document.display_name));
+                            }
+                            update_title_widget ();
+                            record_session ();
+                            saved = true;
+                        }
+                    }
                 }
-                string? path = file.get_path ();
-                if (path == null) {
-                    show_message ("Only local files can be saved.");
-                    return;
-                }
-                var other = find_tab_by_path (path);
-                if (other != null && other != tab) {
-                    show_message ("\"%s\" is already open in another tab.".printf (path));
-                    return;
-                }
-                if (!tab.save_as (path)) {
-                    show_message ("Could not save \"%s\".".printf (path));
-                    return;
-                }
-                var page = this.tab_view.get_page (tab);
-                if (page != null) {
-                    page.set_title (trim_title (tab.document.display_name));
-                }
-                update_title_widget ();
-                record_current_document ();
             } catch (GLib.Error e) {
                 if (!is_dialog_cancelled (e)) {
                     show_message ("Could not save file: %s".printf (e.message));
                 }
+            }
+
+            if (closing_page != null) {
+                if (saved) {
+                    record_closed_tab (tab.document);
+                }
+                this.tab_view.close_page_finish (closing_page, saved);
+            }
+        });
+    }
+
+    /**
+     * Ask what to do with a new tab that has unsaved content before closing it.
+     * Finishes the close asynchronously.
+     */
+    private void prompt_close_unsaved (EditorTab tab, Adw.TabPage page) {
+        var dialog = new Adw.AlertDialog (
+            "Save changes?",
+            "This tab has unsaved changes. Save them before closing?");
+        dialog.add_response ("cancel", "Cancel");
+        dialog.add_response ("discard", "Discard");
+        dialog.add_response ("save", "Save");
+        dialog.set_response_appearance ("save", Adw.ResponseAppearance.SUGGESTED);
+        dialog.set_response_appearance ("discard", Adw.ResponseAppearance.DESTRUCTIVE);
+        dialog.set_default_response ("save");
+        dialog.set_close_response ("cancel");
+
+        dialog.choose.begin (this, null, (obj, res) => {
+            string response = dialog.choose.end (res);
+
+            if (response == "save") {
+                prompt_save_as (tab, page);
+            } else if (response == "discard") {
+                tab.discard_scratch ();
+                this.tab_view.close_page_finish (page, true);
+            } else {
+                this.tab_view.close_page_finish (page, false);
             }
         });
     }
@@ -190,6 +279,8 @@ public class MainWindow : Adw.ApplicationWindow {
         controller.add_shortcut (make_shortcut ("<Control>t", "app.new"));
         controller.add_shortcut (make_shortcut ("<Control>o", "app.open"));
         controller.add_shortcut (make_shortcut ("<Control>s", "app.save"));
+        controller.add_shortcut (make_shortcut ("<Control>w", "app.close-tab"));
+        controller.add_shortcut (make_shortcut ("<Control><Shift>t", "app.reopen-tab"));
         controller.add_shortcut (make_shortcut ("<Control>q", "app.quit"));
 
         // Bind to Gtk.Widget.add_controller, which is transfer-full (owned).
@@ -251,42 +342,97 @@ public class MainWindow : Adw.ApplicationWindow {
         this.set_content (this.toolbar_view);
     }
 
-    /** Confirm closing a tab; abort if its contents cannot be saved. */
+    /**
+     * Handle a close request for a tab. Saved files and empty new tabs close
+     * immediately; a new tab with unsaved content is resolved by a prompt,
+     * which finishes the close asynchronously.
+     */
     private bool on_close_page (Adw.TabPage page) {
         var tab = page.get_child () as EditorTab;
-        bool ok = (tab == null) || tab.save_now ();
+        if (tab == null) {
+            this.tab_view.close_page_finish (page, true);
+            return true;
+        }
+
+        if (tab.has_unsaved_content ()) {
+            prompt_close_unsaved (tab, page);
+            return true;
+        }
+
+        bool ok = tab.save_now ();
+        if (ok) {
+            if (tab.document.is_new) {
+                tab.discard_scratch ();
+            } else {
+                record_closed_tab (tab.document);
+            }
+        }
         this.tab_view.close_page_finish (page, ok);
         return true;
     }
 
+    /** Remember a just-closed file so Ctrl+Shift+T can reopen it. */
+    private void record_closed_tab (Document document) {
+        if (!document.is_new) {
+            this.reopen_stack.record ((!) document.path);
+        }
+    }
+
     private void on_page_detached (Adw.TabPage page, int position) {
+        record_session ();
         if (this.tab_view.get_n_pages () == 0) {
             this.close ();
         }
     }
 
     private void restore_session () {
-        // Prefer restoring an unsaved "New tab" from its scratch file.
-        string? scratch_id = this.session.load_last_scratch ();
-        if (scratch_id != null) {
-            string scratch_path = Paths.scratch_file (scratch_id);
-            if (GLib.FileUtils.test (scratch_path, GLib.FileTest.EXISTS)) {
-                try {
-                    bool scratch_recovered;
-                    string text = FileStore.read (scratch_path, out scratch_recovered);
-                    add_tab (Document.restore_scratch (scratch_id, text));
-                    return;
-                } catch (GLib.Error e) {
-                    GLib.warning ("maha: could not restore scratch \"%s\": %s", scratch_path, e.message);
-                }
+        this.restoring = true;
+
+        var state = this.session.load ();
+        Adw.TabPage? active_page = null;
+
+        for (uint i = 0; i < state.tabs.length; i++) {
+            var entry = state.tabs.get (i);
+            Adw.TabPage? page = restore_tab (entry);
+            if (page != null && (int) i == state.active) {
+                active_page = page;
             }
         }
 
-        var last = this.session.load_last_file ();
-        if (last != null && GLib.FileUtils.test (last, GLib.FileTest.EXISTS) && open_path (last)) {
-            return;
+        this.restoring = false;
+
+        if (this.tab_view.get_n_pages () == 0) {
+            add_empty_tab ();
+        } else if (active_page != null) {
+            this.tab_view.set_selected_page (active_page);
         }
-        add_empty_tab ();
+
+        record_session ();
+    }
+
+    private Adw.TabPage? restore_tab (SessionStore.Tab entry) {
+        if (entry.kind == SessionStore.KIND_FILE) {
+            if (!GLib.FileUtils.test (entry.value, GLib.FileTest.EXISTS)) {
+                return null;
+            }
+            return open_path_page (entry.value);
+        }
+
+        if (!Paths.is_safe_scratch_id (entry.value)) {
+            return null;
+        }
+        string scratch = Paths.scratch_file (entry.value);
+        if (!GLib.FileUtils.test (scratch, GLib.FileTest.EXISTS)) {
+            return null;
+        }
+        try {
+            bool recovered;
+            string text = FileStore.read (scratch, out recovered);
+            return add_tab (Document.restore_scratch (entry.value, text));
+        } catch (GLib.Error e) {
+            GLib.warning ("maha: could not restore scratch \"%s\": %s", scratch, e.message);
+            return null;
+        }
     }
 
     private EditorTab? current_tab () {
@@ -301,38 +447,73 @@ public class MainWindow : Adw.ApplicationWindow {
         int pages = this.tab_view.get_n_pages ();
         for (int i = 0; i < pages; i++) {
             var tab = this.tab_view.get_nth_page (i).get_child () as EditorTab;
-            if (tab != null && tab.document.path == path) {
+            if (tab != null && tab.document.path != null && same_file (tab.document.path, path)) {
                 return tab;
             }
         }
         return null;
     }
 
-    private void record_current_document () {
-        record_tab (current_tab ());
+    /** True when both paths refer to the same file (symlinks/hardlinks included). */
+    private static bool same_file (string a, string b) {
+        if (a == b) {
+            return true;
+        }
+        Posix.Stat sa;
+        Posix.Stat sb;
+        if (Posix.stat (a, out sa) != 0) {
+            return false;
+        }
+        if (Posix.stat (b, out sb) != 0) {
+            return false;
+        }
+        return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
     }
 
-    private void record_tab (EditorTab? tab) {
-        if (tab == null) {
+    /** Persist the list of open tabs and the active index for next launch. */
+    private void record_session () {
+        if (this.restoring || this.shutting_down) {
+            return;
+        }
+
+        var tabs = new GLib.GenericArray<SessionStore.Tab> ();
+        var selected = this.tab_view.get_selected_page ();
+        int pages = this.tab_view.get_n_pages ();
+        int active = 0;
+
+        for (int i = 0; i < pages; i++) {
+            var page = this.tab_view.get_nth_page (i);
+            var tab = page.get_child () as EditorTab;
+            if (tab == null) {
+                continue;
+            }
+            if (tab.document.is_new) {
+                tabs.add (new SessionStore.Tab (SessionStore.KIND_SCRATCH, (!) tab.document.scratch_id));
+            } else {
+                tabs.add (new SessionStore.Tab (SessionStore.KIND_FILE, (!) tab.document.path));
+            }
+            if (page == selected) {
+                active = tabs.length - 1;
+            }
+        }
+
+        if (tabs.length == 0) {
             this.session.clear ();
             return;
         }
-        if (tab.document.is_new) {
-            this.session.save_last_scratch ((!) tab.document.scratch_id);
-        } else {
-            this.session.save_last_file (tab.document.path);
-        }
+        this.session.save (tabs, active);
     }
 
     private void add_empty_tab () {
         add_tab (new Document (null, ""));
     }
 
-    private void add_tab (Document document) {
+    private Adw.TabPage add_tab (Document document) {
         var tab = new EditorTab (document, this.auto_saver);
         var page = this.tab_view.append (tab);
         page.set_title (trim_title (document.display_name));
         this.tab_view.set_selected_page (page);
+        return page;
     }
 
     /**
@@ -350,30 +531,40 @@ public class MainWindow : Adw.ApplicationWindow {
     }
 
     /**
-     * Truncate a title to 64 characters (UTF-8 aware), appending an ellipsis
-     * when it is longer, so a long filename never dominates the header.
+     * Truncate a title to 64 characters, appending an ellipsis when it is
+     * longer, so a long filename never dominates the header. The title is first
+     * coerced to valid UTF-8 (filenames are arbitrary bytes on Linux) and the
+     * scan is bounded by the byte length.
      */
     private static string trim_title (string title) {
+        string clean = title.validate () ? title : title.make_valid ();
         const int max_chars = 64;
-        if (title.char_count () <= max_chars) {
-            return title;
+        if (clean.char_count () <= max_chars) {
+            return clean;
         }
-        int bytes = 0;
+
+        long length = clean.length;
+        long bytes = 0;
         int chars = 0;
-        while (chars < max_chars) {
-            uint8 b = (uint8) title[bytes];
+        while (chars < max_chars && bytes < length) {
+            uint8 b = (uint8) clean[bytes];
+            long step;
             if (b < 0x80) {
-                bytes += 1;
+                step = 1;
             } else if (b < 0xE0) {
-                bytes += 2;
+                step = 2;
             } else if (b < 0xF0) {
-                bytes += 3;
+                step = 3;
             } else {
-                bytes += 4;
+                step = 4;
             }
+            if (bytes + step > length) {
+                break;
+            }
+            bytes += step;
             chars++;
         }
-        return title.substring (0, (long) bytes) + "...";
+        return clean.substring (0, bytes) + "...";
     }
 
     private static bool is_dialog_cancelled (GLib.Error e) {

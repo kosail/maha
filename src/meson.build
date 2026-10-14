@@ -7,6 +7,7 @@ maha_core_sources = files(
   'config.vala',
   'config_store.vala',
   'session_store.vala',
+  'reopen_stack.vala',
 )
 
 maha_ui_sources = files(

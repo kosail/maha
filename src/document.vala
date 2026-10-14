@@ -64,6 +64,9 @@ public class Document : GLib.Object {
 
     /** Promote a scratch document to a real file path. */
     public void promote (string new_path) {
+        if (new_path == "") {
+            return;
+        }
         this.path = new_path;
         this.scratch_id = null;
     }

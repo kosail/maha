@@ -95,19 +95,36 @@ public class FileStore : GLib.Object {
         return buffer.steal ();
     }
 
-    /** Atomically replace `path` with `contents`. */
-    public static void save_atomic (string path, string contents) throws GLib.Error {
-        var dir = GLib.Path.get_dirname (path);
+    /**
+     * Atomically replace `path` with `contents`.
+     *
+     * @param sync flush to stable storage. Callers that store non-critical,
+     *   frequently-written state (config, session) pass false to avoid an
+     *   fsync on every update.
+     */
+    public static void save_atomic (string path, string contents, bool sync = true) throws GLib.Error {
+        // Follow symlinks so saving through one updates its target instead of
+        // replacing the link with a regular file.
+        string target = resolve_target (path);
+
+        var dir = GLib.Path.get_dirname (target);
         if (dir == null || dir == "") {
             dir = ".";
         }
 
+        // A new temp file starts private (0600) so an existing private file's
+        // contents are never briefly world-readable; the destination's mode is
+        // restored below. A brand-new file is created as 0666 (umask applies).
+        Posix.Stat st;
+        bool exists = Posix.stat (target, out st) == 0;
+        Posix.mode_t create_mode = exists ? (Posix.mode_t) 0600 : (Posix.mode_t) 0666;
+
         string tmp;
-        int fd = create_temp (dir, out tmp);
+        int fd = create_temp (dir, create_mode, out tmp);
 
         try {
             write_all (fd, contents);
-            if (Posix.fsync (fd) != 0) {
+            if (sync && Posix.fsync (fd) != 0) {
                 throw new GLib.FileError.FAILED ("cannot flush temporary file \"%s\": %s".printf (tmp, GLib.strerror (Posix.errno)));
             }
         } catch (GLib.Error e) {
@@ -117,14 +134,35 @@ public class FileStore : GLib.Object {
         }
         Posix.close (fd);
 
-        preserve_permissions (path, tmp);
-
-        if (GLib.FileUtils.rename (tmp, path) != 0) {
-            Posix.unlink (tmp);
-            throw new GLib.FileError.FAILED ("cannot rename \"%s\" onto \"%s\": %s".printf (tmp, path, GLib.strerror (Posix.errno)));
+        if (exists) {
+            Posix.chmod (tmp, st.st_mode & 0777);
         }
 
-        fsync_dir (dir);
+        if (GLib.FileUtils.rename (tmp, target) != 0) {
+            Posix.unlink (tmp);
+            throw new GLib.FileError.FAILED ("cannot rename \"%s\" onto \"%s\": %s".printf (tmp, target, GLib.strerror (Posix.errno)));
+        }
+
+        if (sync) {
+            fsync_dir (dir);
+        }
+    }
+
+    /**
+     * Resolve `path` to the file it ultimately points at when it already
+     * exists (so a symlink is preserved). Falls back to `path` for new files
+     * or when resolution fails.
+     */
+    private static string resolve_target (string path) {
+        if (!GLib.FileUtils.test (path, GLib.FileTest.EXISTS) &&
+            !GLib.FileUtils.test (path, GLib.FileTest.IS_SYMLINK)) {
+            return path;
+        }
+        string? real = Posix.realpath (path, null);
+        if (real != null && real != "") {
+            return real;
+        }
+        return path;
     }
 
     /**
@@ -133,12 +171,12 @@ public class FileStore : GLib.Object {
      * Uses a short, bounded name (never derived from the destination's name, so
      * it cannot exceed NAME_MAX) and retries on a name collision.
      */
-    private static int create_temp (string dir, out string tmp) throws GLib.Error {
+    private static int create_temp (string dir, Posix.mode_t mode, out string tmp) throws GLib.Error {
         int flags = Posix.O_WRONLY | Posix.O_CREAT | Posix.O_EXCL | Posix.O_TRUNC;
 
         for (int attempt = 0; attempt < 16; attempt++) {
             tmp = GLib.Path.build_filename (dir, ".maha-%u-%u.tmp".printf (Posix.getpid (), GLib.Random.next_int ()));
-            int fd = Posix.open (tmp, flags, (Posix.mode_t) 0644);
+            int fd = Posix.open (tmp, flags, mode);
             if (fd >= 0) {
                 return fd;
             }
@@ -165,13 +203,6 @@ public class FileStore : GLib.Object {
             }
             ptr += written;
             remaining -= (size_t) written;
-        }
-    }
-
-    private static void preserve_permissions (string source, string dest) {
-        Posix.Stat st;
-        if (Posix.stat (source, out st) == 0) {
-            Posix.chmod (dest, st.st_mode & 0777);
         }
     }
 

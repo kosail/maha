@@ -7,6 +7,8 @@ public void register_document_tests () {
     GLib.Test.add_func ("/document/scratch_path", test_scratch_path);
     GLib.Test.add_func ("/document/restore_scratch", test_restore_scratch);
     GLib.Test.add_func ("/document/promote", test_promote);
+    GLib.Test.add_func ("/document/scratch_id_validation", test_scratch_id_validation);
+    GLib.Test.add_func ("/document/scratch_path_sanitized", test_scratch_path_sanitized);
 }
 
 private void test_new_tab_name () {
@@ -51,6 +53,25 @@ private void test_promote () {
     assert (document.scratch_id == null);
     assert (document.autosave_path == "/tmp/saved.txt");
     assert (document.display_name == "saved.txt");
+}
+
+private void test_scratch_id_validation () {
+    assert (Paths.is_safe_scratch_id ("2fb121c0-1de4-4d36-809d-4dd8ecd8dbb3"));
+    assert (Paths.is_safe_scratch_id ("abc_123"));
+    assert (!Paths.is_safe_scratch_id (""));
+    assert (!Paths.is_safe_scratch_id ("."));
+    assert (!Paths.is_safe_scratch_id (".."));
+    assert (!Paths.is_safe_scratch_id ("../etc/passwd"));
+    assert (!Paths.is_safe_scratch_id ("a/b"));
+    assert (!Paths.is_safe_scratch_id ("a b"));
+}
+
+private void test_scratch_path_sanitized () {
+    // A crafted id must never escape the cache directory.
+    string path = Paths.scratch_file ("../../etc/passwd");
+    assert (path.has_prefix (Paths.cache_dir ()));
+    assert (!path.contains (".."));
+    assert (path.has_suffix (".tmp.txt"));
 }
 
 }

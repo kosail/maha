@@ -25,7 +25,34 @@ public class Paths : GLib.Object {
 
     /** Crash-safe backing store for an unsaved document. */
     public static string scratch_file (string id) {
-        return GLib.Path.build_filename (cache_dir (), "%s.tmp.txt".printf (id));
+        // Never let a scratch id escape the cache directory: keep only
+        // characters that are safe in a filename (real ids are UUIDs).
+        var sb = new StringBuilder ();
+        foreach (unowned uint8 b in id.data) {
+            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') ||
+                (b >= '0' && b <= '9') || b == '-' || b == '_') {
+                sb.append_c ((char) b);
+            }
+        }
+        string safe = sb.str;
+        if (safe == "") {
+            safe = "scratch";
+        }
+        return GLib.Path.build_filename (cache_dir (), "%s.tmp.txt".printf (safe));
+    }
+
+    /** True when `id` is a well-formed scratch identifier (no path parts). */
+    public static bool is_safe_scratch_id (string id) {
+        if (id == "" || id == "." || id == "..") {
+            return false;
+        }
+        foreach (unowned uint8 b in id.data) {
+            if (!((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') ||
+                  (b >= '0' && b <= '9') || b == '-' || b == '_')) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 

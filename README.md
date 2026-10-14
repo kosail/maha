@@ -26,8 +26,9 @@ But I have to be honest with you: I needed this app, but I don't have for it... 
 - Atomic writes, so a crash never leaves a half-written file.
 - Recovery for files with NUL corruption.
 - Unsaved documents are backed by a scratch file, so a "New tab" survives a crash before you ever name it (just like VS Code does).
-- Session restore: reopens the last file, or the last unsaved tab.
-- Configurable window transparency, font family, and font size.
+- Closing a new tab that still has unsaved text asks whether to save, discard, or cancel.
+- Session restore: reopens every tab from the previous run (files and unsaved tabs), with the previously active tab focused.
+- Configurable window transparency, font family, font size, and line height.
 - Follows the system light/dark theme.
 
 ## Requirements
@@ -59,12 +60,14 @@ meson install -C build
 
 ## Keyboard shortcuts
 
-| Action   | Shortcut      |
-| -------- | ------------- |
-| New tab  | `Ctrl+T`      |
-| Open     | `Ctrl+O`      |
-| Save     | `Ctrl+S`      |
-| Quit     | `Ctrl+Q`      |
+| Action            | Shortcut       |
+| ----------------- | -------------- |
+| New tab           | `Ctrl+T`       |
+| Open              | `Ctrl+O`       |
+| Save              | `Ctrl+S`       |
+| Close tab         | `Ctrl+W`       |
+| Reopen closed tab | `Ctrl+Shift+T` |
+| Quit              | `Ctrl+Q`       |
 
 ## Configuration
 
@@ -81,9 +84,9 @@ line_height=0
 autosave_ms=1500
 ```
 
-`transparency` is the window background opacity, clamped to 0.05 through 1.0. `font` is a Pango family name. `font_size` is in points. `autosave_ms` is the debounce delay before a change is written, be concious with a value in here because if it is too low, you will cause unnecesary wear to your SSD.
+`transparency` is the window background opacity, clamped to 0.05 through 1.0. `font` is a Pango family name. `font_size` is in points. `line_height` is a multiple of the font size (0 keeps the font's natural spacing, e.g. `1.4` opens the text up). `autosave_ms` is the debounce delay before a change is written; be conscious with this value, because if it is too low you will cause unnecessary wear to your SSD.
 
-The session file at `~/.config/maha/session` remembers the last document. Scratch files for unsaved tabs go in `~/.cache/maha/`.
+The session file at `~/.config/maha/session` remembers every open tab (files and unsaved tabs) and which one was active. Scratch files for unsaved tabs go in `~/.cache/maha/`.
 
 ## How it works
 
@@ -93,7 +96,7 @@ The session file at `~/.config/maha/session` remembers the last document. Scratc
 
 **Autosave.** Editing a document arms a debounce timer. When it fires, the current text is pulled from the editor and written through the same atomic path. Text is pulled lazily at save time, so typing in a large file does not copy the whole buffer on every keystroke. See `src/auto_saver.vala`.
 
-**Scratch files and the session.** A document with no path is backed by a UUID-named scratch file in the cache directory. That way the text exists on disk before it has a name, and a crash cannot lose it. The session store remembers which document was active, whether that is a real file or a scratch id, and restores it on the next run.
+**Scratch files and the session.** A document with no path is backed by a UUID-named scratch file in the cache directory. That way the text exists on disk before it has a name, and a crash cannot lose it. The session store remembers every open tab (each one a real file or a scratch id) and which tab was active, and restores them all on the next run.
 
 ## Testing
 
@@ -101,7 +104,7 @@ The session file at `~/.config/maha/session` remembers the last document. Scratc
 meson test -C build
 ```
 
-The core suite has 35 tests covering document state, atomic I/O, corruption recovery, config parsing, autosave, and session handling. There is also a headless GUI smoke test that launches the real binary under Xvfb and sends `Ctrl+S`, which guards the GTK shortcut controller that the unit tests cannot reach.
+The core suite has 44 tests covering document state, atomic I/O, corruption recovery, config parsing, autosave, and session handling. There is also a headless GUI smoke test that launches the real binary under Xvfb and sends `Ctrl+S`, which guards the GTK shortcut controller that the unit tests cannot reach.
 
 ## Troubleshooting
 

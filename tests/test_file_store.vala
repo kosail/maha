@@ -6,6 +6,8 @@ public void register_file_store_tests () {
     GLib.Test.add_func ("/file_store/roundtrip", test_file_store_roundtrip);
     GLib.Test.add_func ("/file_store/no_temp_left_behind", test_no_temp_left_behind);
     GLib.Test.add_func ("/file_store/permissions_preserved", test_permissions_preserved);
+    GLib.Test.add_func ("/file_store/private_mode_preserved", test_private_mode_preserved);
+    GLib.Test.add_func ("/file_store/symlink_preserved", test_symlink_preserved);
     GLib.Test.add_func ("/file_store/large_content", test_large_content);
     GLib.Test.add_func ("/file_store/long_filename", test_long_filename);
 }
@@ -65,6 +67,50 @@ private void test_permissions_preserved () {
     Posix.Stat st;
     assert (Posix.stat (path, out st) == 0);
     assert ((st.st_mode & 0777) == 0640);
+}
+
+private void test_private_mode_preserved () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "secret.txt");
+
+    try {
+        GLib.FileUtils.set_contents (path, "x");
+        Posix.chmod (path, (Posix.mode_t) 0600);
+        FileStore.save_atomic (path, "y");
+    } catch (GLib.Error e) {
+        GLib.Test.fail ();
+    }
+
+    Posix.Stat st;
+    assert (Posix.stat (path, out st) == 0);
+    assert ((st.st_mode & 0777) == 0600);
+}
+
+private void test_symlink_preserved () {
+    var dir = make_tmp_dir ();
+    var target = GLib.Path.build_filename (dir, "target.txt");
+    var link = GLib.Path.build_filename (dir, "link.txt");
+
+    try {
+        GLib.FileUtils.set_contents (target, "old");
+    } catch (GLib.Error e) {
+        GLib.Test.fail ();
+    }
+
+    if (GLib.FileUtils.symlink (target, link) != 0) {
+        GLib.Test.message ("symlinks unsupported here; skipping");
+        return;
+    }
+
+    try {
+        FileStore.save_atomic (link, "new");
+    } catch (GLib.Error e) {
+        GLib.Test.fail ();
+    }
+
+    // The link must survive and the target must hold the new content.
+    assert (GLib.FileUtils.test (link, GLib.FileTest.IS_SYMLINK));
+    assert (read_file (target) == "new");
 }
 
 private void test_large_content () {

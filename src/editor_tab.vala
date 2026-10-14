@@ -48,6 +48,18 @@ public class EditorTab : Gtk.Box, TextSource {
         return view.buffer.text;
     }
 
+    /** True when this is a path-less document with content never saved to a file. */
+    public bool has_unsaved_content () {
+        return document.is_new && view.buffer.get_char_count () > 0;
+    }
+
+    /** Delete this document's scratch file, if it has one. */
+    public void discard_scratch () {
+        if (document.is_new && document.scratch_id != null) {
+            FileStore.remove (Paths.scratch_file ((!) document.scratch_id));
+        }
+    }
+
     /** Persist the current contents (to the file, or the scratch store). */
     public bool save_now () {
         if (!auto_saver.flush (document)) {

@@ -15,6 +15,7 @@ public void register_config_tests () {
     GLib.Test.add_func ("/config/line_height_custom", test_line_height_custom);
     GLib.Test.add_func ("/config/line_height_invalid", test_line_height_invalid_falls_back);
     GLib.Test.add_func ("/config/line_height_normal", test_line_height_normal);
+    GLib.Test.add_func ("/config/clean_output", test_clean_output);
 }
 
 private void test_creates_default_file () {
@@ -172,6 +173,22 @@ private void test_line_height_normal () {
 
     config.line_height = -2.0;
     assert (config.effective_line_height == 0.0);
+}
+
+private void test_clean_output () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "config.ini");
+
+    new ConfigStore (path).load ();
+
+    string contents = read_file (path);
+    assert (contents.contains ("transparency=0.85"));
+    assert (!contents.contains ("0.8499"));
+    assert (contents.contains ("line_height=0"));
+
+    // The hand-written file must still round-trip through the loader.
+    var config = new ConfigStore (path).load ();
+    assert (config.transparency == Config.DEFAULT_TRANSPARENCY);
 }
 
 }

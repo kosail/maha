@@ -35,6 +35,14 @@ public class Application : Adw.Application {
         save_action.activate.connect (on_save);
         add_action (save_action);
 
+        var close_tab_action = new GLib.SimpleAction ("close-tab", null);
+        close_tab_action.activate.connect (on_close_tab);
+        add_action (close_tab_action);
+
+        var reopen_tab_action = new GLib.SimpleAction ("reopen-tab", null);
+        reopen_tab_action.activate.connect (on_reopen_tab);
+        add_action (reopen_tab_action);
+
         var quit_action = new GLib.SimpleAction ("quit", null);
         quit_action.activate.connect (on_quit);
         add_action (quit_action);
@@ -94,8 +102,30 @@ public class Application : Adw.Application {
         }
     }
 
+    private void on_close_tab () {
+        var window = this.active_window as MainWindow;
+        if (window != null) {
+            window.close_current_tab ();
+        }
+    }
+
+    private void on_reopen_tab () {
+        var window = this.active_window as MainWindow;
+        if (window != null) {
+            window.reopen_last_closed_tab ();
+        }
+    }
+
     private void on_quit () {
         if (flush_all_windows ()) {
+            // Mark windows before quitting so their teardown does not rewrite
+            // (and effectively clear) the saved session.
+            foreach (var candidate in get_windows ()) {
+                var window = candidate as MainWindow;
+                if (window != null) {
+                    window.mark_shutting_down ();
+                }
+            }
             quit ();
             return;
         }

@@ -9,7 +9,9 @@
 # is unavailable.
 
 BIN="$1"
-DISPLAY_NUM=":91"
+# Pick a display from the shell PID to reduce collisions between runs, and
+# clear any stale lock/socket so Xvfb can always start.
+DISPLAY_NUM=":$((90 + ($$ % 8)))"
 XVFB_PID=""
 APP_PID=""
 CONFIG_DIR=""
@@ -44,6 +46,9 @@ mkdir -p "$CONFIG_DIR/maha"
 NOTE="$CONFIG_DIR/note.txt"
 printf 'hello\n' >"$NOTE"
 printf '%s\n' "$NOTE" >"$CONFIG_DIR/maha/session"
+
+X_NUM="${DISPLAY_NUM#:}"
+rm -f "/tmp/.X${X_NUM}-lock" "/tmp/.X11-unix/X${X_NUM}" 2>/dev/null
 
 Xvfb "$DISPLAY_NUM" -screen 0 1024x768x24 >/dev/null 2>&1 &
 XVFB_PID=$!
