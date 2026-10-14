@@ -14,7 +14,7 @@ I created this project because I wanted a dead simple notepad with a modern and 
 
 Though the best editor I've been using that fit my needs has been VS Code, I wanted something focused. My inspiration of design was Apostrophe, the Markdown editor from the GNOME team (god I love that app!!!). 
 
-But I have to be honest with you: I needed this app, but I don't have for it... at least for these months. Thus, I built it with heavy AI assistance, then reviewed, tested, and debugged by myself. The design decisions below (atomic writes, corruption recovery, session handling) came out from my own needs. Everything here is also modular, and on any issue it arises, fixes will be cheap and easy.
+But I have to be honest with you: I needed this app, but I don't have for it... at least for these months. Thus, I built it with heavy AI assistance, then reviewed, tested, and debugged by myself. The design decisions below (atomic writes, corruption recovery, session handling) came out from my own needs. Everything is modular for easier audits too.
 
 
 > [!NOTE]
@@ -23,6 +23,7 @@ But I have to be honest with you: I needed this app, but I don't have for it... 
 >
 > For blur, check on your specific desktop environment.
 > The images below are KDE Plasma 6 + better-blur-dx plugin
+
 
 ![Screenshot 1, on KDE Plasma with blur plugin](.github/images/screenshot1.webp)
 ![Screenshot 2, on KDE Plasma with blur plugin](.github/images/screenshot2.webp)
