@@ -1,0 +1,69 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: linux-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config valac meson ninja-build \
+            libgtk-4-dev libadwaita-1-dev
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xdotool dbus
+
+      - name: Configure
+        run: meson setup build --buildtype=release --prefix=/usr
+
+      - name: Compile
+        run: meson compile -C build
+
+      - name: Test
+        run: meson test -C build --print-errorlogs
+
+      - name: Package
+        run: |
+          strip build/src/maha
+          meson install -C build --destdir "$PWD/stage" --no-rebuild
+          tar -C stage/usr -czf "maha-linux-${{ matrix.arch }}.tar.gz" .
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: maha-linux-${{ matrix.arch }}
+          path: maha-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.arch }}
+          path: build/meson-logs/
+          if-no-files-found: ignore
