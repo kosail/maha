@@ -79,6 +79,13 @@ public class ThemeController : GLib.Object {
             css.append ("textview.maha-editor { font-family: \"%s\"; font-size: %dpt; }\n".printf (escape (family), config.effective_font_size));
         }
 
+        // Line height (user configurable); a multiple of the font size. When
+        // unset (0) the font's natural line spacing is kept.
+        double line_height = config.effective_line_height;
+        if (line_height > 0.0) {
+            css.append ("textview.maha-editor { line-height: %.4f; }\n".printf (line_height));
+        }
+
         return css.str;
     }
 

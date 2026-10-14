@@ -12,6 +12,7 @@ public class ConfigStore : GLib.Object {
     public const string KEY_TRANSPARENCY = "transparency";
     public const string KEY_FONT = "font";
     public const string KEY_FONT_SIZE = "font_size";
+    public const string KEY_LINE_HEIGHT = "line_height";
 
     public const string GROUP_EDITOR = "editor";
     public const string KEY_AUTOSAVE_MS = "autosave_ms";
@@ -52,6 +53,8 @@ public class ConfigStore : GLib.Object {
         int font_size = read_int (keyfile, GROUP, KEY_FONT_SIZE, Config.DEFAULT_FONT_SIZE);
         config.font_size = font_size > 0 ? font_size : Config.DEFAULT_FONT_SIZE;
 
+        config.line_height = read_double (keyfile, GROUP, KEY_LINE_HEIGHT, Config.DEFAULT_LINE_HEIGHT);
+
         int autosave_ms = read_int (keyfile, GROUP_EDITOR, KEY_AUTOSAVE_MS, (int) Config.DEFAULT_AUTOSAVE_MS);
         config.autosave_ms = autosave_ms > 0 ? (uint) autosave_ms : Config.DEFAULT_AUTOSAVE_MS;
         return config;
@@ -64,6 +67,7 @@ public class ConfigStore : GLib.Object {
         keyfile.set_double (GROUP, KEY_TRANSPARENCY, config.transparency);
         keyfile.set_string (GROUP, KEY_FONT, config.font);
         keyfile.set_integer (GROUP, KEY_FONT_SIZE, config.font_size);
+        keyfile.set_double (GROUP, KEY_LINE_HEIGHT, config.line_height);
         keyfile.set_integer (GROUP_EDITOR, KEY_AUTOSAVE_MS, (int) config.autosave_ms);
 
         size_t length;

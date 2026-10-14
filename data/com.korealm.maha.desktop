@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=maha
+Comment=A minimal notepad
+Exec=maha
+Icon=com.korealm.maha
+Terminal=false
+Categories=Utility;TextEditor;
+StartupNotify=true
+StartupWMClass=maha

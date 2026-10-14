@@ -11,7 +11,7 @@ public class Application : Adw.Application {
 
     public Application () {
         Object (
-            application_id: "io.github.maha",
+            application_id: "com.korealm.maha",
             flags: GLib.ApplicationFlags.DEFAULT_FLAGS
         );
     }

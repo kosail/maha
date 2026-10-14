@@ -28,6 +28,7 @@ public class MainWindow : Adw.ApplicationWindow {
         this.add_css_class ("maha");
         this.set_default_size (920, 660);
         this.set_title ("maha");
+        this.set_icon_name ("com.korealm.maha");
 
         this.tab_view = new Adw.TabView ();
         this.tab_view.close_page.connect (on_close_page);

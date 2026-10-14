@@ -33,6 +33,7 @@ maha_core_dep = declare_dependency(
 
 maha_exec = executable('maha',
   maha_ui_sources,
+  maha_resources,
   dependencies: [glib_dep, gio_dep, gtk_dep, adw_dep, maha_core_dep],
   vala_args: ['--pkg=posix'],
   c_args: maha_c_args,

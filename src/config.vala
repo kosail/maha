@@ -11,6 +11,7 @@ public class Config : GLib.Object {
     public const int MIN_FONT_SIZE = 1;
     public const double DEFAULT_TRANSPARENCY = 0.85;
     public const double MIN_TRANSPARENCY = 0.05;
+    public const double DEFAULT_LINE_HEIGHT = 0.0;
     public const uint DEFAULT_AUTOSAVE_MS = 1500;
     public const uint MIN_AUTOSAVE_MS = 10;
 
@@ -22,6 +23,12 @@ public class Config : GLib.Object {
 
     /** Editor font size in points. */
     public int font_size { get; set; default = DEFAULT_FONT_SIZE; }
+
+    /**
+     * Editor line height, as a multiple of the font size (e.g. 1.4). A value
+     * of 0 (or less) keeps the font's natural line spacing.
+     */
+    public double line_height { get; set; default = DEFAULT_LINE_HEIGHT; }
 
     /** Debounce time before autosaving, in milliseconds. */
     public uint autosave_ms { get; set; default = DEFAULT_AUTOSAVE_MS; }
@@ -56,6 +63,19 @@ public class Config : GLib.Object {
                 return MIN_AUTOSAVE_MS;
             }
             return autosave_ms;
+        }
+    }
+
+    /**
+     * `line_height` for CSS: 0 means "use the font's natural spacing", any
+     * positive value is used as a multiple of the font size.
+     */
+    public double effective_line_height {
+        get {
+            if (line_height <= 0.0) {
+                return 0.0;
+            }
+            return line_height;
         }
     }
 }

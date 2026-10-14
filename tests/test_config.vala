@@ -11,6 +11,10 @@ public void register_config_tests () {
     GLib.Test.add_func ("/config/clamped", test_transparency_clamped);
     GLib.Test.add_func ("/config/autosave_clamped", test_autosave_clamped);
     GLib.Test.add_func ("/config/font_size_clamped", test_font_size_clamped);
+    GLib.Test.add_func ("/config/line_height_default", test_line_height_default);
+    GLib.Test.add_func ("/config/line_height_custom", test_line_height_custom);
+    GLib.Test.add_func ("/config/line_height_invalid", test_line_height_invalid_falls_back);
+    GLib.Test.add_func ("/config/line_height_normal", test_line_height_normal);
 }
 
 private void test_creates_default_file () {
@@ -23,6 +27,7 @@ private void test_creates_default_file () {
     assert (config.font == Config.DEFAULT_FONT);
     assert (config.font_size == Config.DEFAULT_FONT_SIZE);
     assert (config.autosave_ms == Config.DEFAULT_AUTOSAVE_MS);
+    assert (config.line_height == Config.DEFAULT_LINE_HEIGHT);
     assert (GLib.FileUtils.test (path, GLib.FileTest.EXISTS));
 }
 
@@ -31,7 +36,7 @@ private void test_reads_custom_values () {
     var path = GLib.Path.build_filename (dir, "config.ini");
 
     try {
-        GLib.FileUtils.set_contents (path, "[appearance]\ntransparency=0.5\nfont=Fira Code\nfont_size=16\n\n[editor]\nautosave_ms=250\n");
+        GLib.FileUtils.set_contents (path, "[appearance]\ntransparency=0.5\nfont=Fira Code\nfont_size=16\nline_height=1.4\n\n[editor]\nautosave_ms=250\n");
     } catch (GLib.Error e) {
         GLib.Test.fail ();
     }
@@ -42,6 +47,7 @@ private void test_reads_custom_values () {
     assert (config.font == "Fira Code");
     assert (config.font_size == 16);
     assert (config.autosave_ms == 250);
+    assert (config.line_height == 1.4);
 }
 
 private void test_invalid_falls_back () {
@@ -49,7 +55,7 @@ private void test_invalid_falls_back () {
     var path = GLib.Path.build_filename (dir, "config.ini");
 
     try {
-        GLib.FileUtils.set_contents (path, "[appearance]\ntransparency=not-a-number\nfont_size=not-a-number\n\n[editor]\nautosave_ms=not-a-number\n");
+        GLib.FileUtils.set_contents (path, "[appearance]\ntransparency=not-a-number\nfont_size=not-a-number\nline_height=not-a-number\n\n[editor]\nautosave_ms=not-a-number\n");
     } catch (GLib.Error e) {
         GLib.Test.fail ();
     }
@@ -60,6 +66,7 @@ private void test_invalid_falls_back () {
     assert (config.font == Config.DEFAULT_FONT);
     assert (config.font_size == Config.DEFAULT_FONT_SIZE);
     assert (config.autosave_ms == Config.DEFAULT_AUTOSAVE_MS);
+    assert (config.line_height == Config.DEFAULT_LINE_HEIGHT);
 }
 
 private void test_negative_autosave_falls_back () {
@@ -123,6 +130,48 @@ private void test_font_size_clamped () {
 
     config.font_size = 18;
     assert (config.effective_font_size == 18);
+}
+
+private void test_line_height_default () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "config.ini");
+
+    var config = new ConfigStore (path).load ();
+
+    assert (config.line_height == Config.DEFAULT_LINE_HEIGHT);
+    assert (config.effective_line_height == 0.0);
+}
+
+private void test_line_height_custom () {
+    var config = new Config ();
+
+    config.line_height = 1.4;
+    assert (config.effective_line_height == 1.4);
+}
+
+private void test_line_height_invalid_falls_back () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "config.ini");
+
+    try {
+        GLib.FileUtils.set_contents (path, "[appearance]\nline_height=not-a-number\n");
+    } catch (GLib.Error e) {
+        GLib.Test.fail ();
+    }
+
+    var config = new ConfigStore (path).load ();
+
+    assert (config.line_height == Config.DEFAULT_LINE_HEIGHT);
+}
+
+private void test_line_height_normal () {
+    var config = new Config ();
+
+    config.line_height = 0.0;
+    assert (config.effective_line_height == 0.0);
+
+    config.line_height = -2.0;
+    assert (config.effective_line_height == 0.0);
 }
 
 }
