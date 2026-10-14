@@ -11,6 +11,7 @@ public void register_session_tests () {
     GLib.Test.add_func ("/session/missing", test_missing_file);
     GLib.Test.add_func ("/session/value_with_newline", test_value_with_newline);
     GLib.Test.add_func ("/session/nested_parent_created", test_session_nested_parent_created);
+    GLib.Test.add_func ("/session/huge_count_ignored", test_huge_count_ignored);
 }
 
 private void test_session_roundtrip () {
@@ -131,6 +132,21 @@ private void test_session_nested_parent_created () {
     store.save (tabs, 0);
 
     assert (GLib.FileUtils.test (path, GLib.FileTest.EXISTS));
+}
+
+// A corrupt count must not make startup spin over a huge loop.
+private void test_huge_count_ignored () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "session");
+
+    try {
+        GLib.FileUtils.set_contents (path, "[session]\ncount=100000000\nactive=0\n");
+    } catch (GLib.Error e) {
+        GLib.Test.fail ();
+    }
+
+    var state = new SessionStore (path).load ();
+    assert (state.tabs.length == 0);
 }
 
 }

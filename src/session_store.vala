@@ -17,6 +17,9 @@ public class SessionStore : GLib.Object {
     private const string KEY_VALUE = "value";
     private const string GROUP_LAST = "last";
 
+    /** Upper bound on remembered tabs, so a corrupt count cannot hang startup. */
+    private const int MAX_SESSION_TABS = 1024;
+
     public const string KIND_FILE = "file";
     public const string KIND_SCRATCH = "scratch";
 
@@ -50,17 +53,25 @@ public class SessionStore : GLib.Object {
             return state;
         }
 
-        string contents;
+        // Read the raw bytes so an embedded NUL cannot silently truncate the
+        // parse (get_contents returns a C string whose length stops at NUL).
+        uint8[] raw;
         try {
-            GLib.FileUtils.get_contents (path, out contents);
+            GLib.FileUtils.get_data (path, out raw);
         } catch (GLib.Error e) {
             return state;
         }
 
+        var sb = new StringBuilder.sized ((int) raw.length);
+        foreach (uint8 b in raw) {
+            sb.append_c ((char) b);
+        }
+        string contents = sb.str;
+
         var keyfile = new GLib.KeyFile ();
         bool parsed = false;
         try {
-            parsed = keyfile.load_from_data (contents, contents.length, GLib.KeyFileFlags.NONE);
+            parsed = keyfile.load_from_data (contents, raw.length, GLib.KeyFileFlags.NONE);
         } catch (GLib.Error e) {
             parsed = false;
         }
@@ -129,6 +140,12 @@ public class SessionStore : GLib.Object {
             count = keyfile.get_integer (GROUP, KEY_COUNT);
         } catch (GLib.Error e) {
             return;
+        }
+        // Never trust the stored count: a corrupt file must not hang startup.
+        if (count < 0) {
+            count = 0;
+        } else if (count > MAX_SESSION_TABS) {
+            count = MAX_SESSION_TABS;
         }
 
         for (int i = 0; i < count; i++) {

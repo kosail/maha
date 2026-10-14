@@ -64,9 +64,11 @@ public class FileStore : GLib.Object {
      *
      * For `TEXT` and `CORRUPT_TEXT` the returned text is valid UTF-8 (for the
      * latter, only the recoverable prefix before the corruption). For `BINARY`
-     * the text is a lossy, read-only view (invalid bytes become U+FFFD).
+     * the text is a lossy, read-only view (invalid bytes become U+FFFD), unless
+     * `binary_view` is false, in which case no view is built (callers that only
+     * care about the classification avoid the extra allocation).
      */
-    public static ReadResult read (string path) throws GLib.Error {
+    public static ReadResult read (string path, bool binary_view = true) throws GLib.Error {
         uint8[] data = read_bytes (path);
         ContentKind kind = classify (data);
 
@@ -77,7 +79,7 @@ public class FileStore : GLib.Object {
                 int64 nul = find_nul (data);
                 return new ReadResult (kind, sanitize (bytes_to_string (data, nul)));
             default:
-                return new ReadResult (ContentKind.BINARY, to_view_text (data, data.length));
+                return new ReadResult (ContentKind.BINARY, binary_view ? to_view_text (data, data.length) : "");
         }
     }
 
@@ -278,7 +280,7 @@ public class FileStore : GLib.Object {
         Posix.close (fd);
 
         if (exists) {
-            Posix.chmod (tmp, st.st_mode & 0777);
+            Posix.chmod (tmp, st.st_mode & 07777);
         }
 
         if (GLib.FileUtils.rename (tmp, target) != 0) {
@@ -362,7 +364,7 @@ public class FileStore : GLib.Object {
     }
 
     private static void fsync_dir (string dir) {
-        int dfd = Posix.open (dir, Posix.O_RDONLY);
+        int dfd = Posix.open (dir, Posix.O_RDONLY | Posix.O_CLOEXEC);
         if (dfd >= 0) {
             Posix.fsync (dfd);
             Posix.close (dfd);

@@ -1,5 +1,3 @@
-using Maha.Testing;
-
 namespace Maha {
 
 public void register_document_tests () {

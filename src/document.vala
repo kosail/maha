@@ -10,7 +10,9 @@ namespace Maha {
  * cache directory so its text survives a crash even before it is saved.
  */
 public class Document : GLib.Object {
-    public string? path { get; set; default = null; }
+    // Set only through the constructor and promote()/restore_scratch(), so
+    // `path` and `scratch_id` can never disagree.
+    public string? path { get; private set; default = null; }
     public string text { get; set; default = ""; }
     public bool dirty { get; set; default = false; }
 

@@ -123,7 +123,9 @@ public class MainWindow : Adw.ApplicationWindow {
 
         FileStore.ReadResult result;
         try {
-            result = FileStore.read (path);
+            // Skip building the lossy BINARY view: this path only opens text
+            // (or offers read-only, which re-reads with the view).
+            result = FileStore.read (path, false);
         } catch (GLib.Error e) {
             if (interactive) {
                 show_message ("Could not open \"%s\": %s".printf (path, e.message));

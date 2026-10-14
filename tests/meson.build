@@ -13,7 +13,7 @@ test_sources = files(
 
 maha_tests = executable('maha-tests',
   test_sources,
-  dependencies: [glib_dep, gio_dep, maha_core_dep],
+  dependencies: [glib_dep, gobject_dep, maha_core_dep],
   vala_args: ['--pkg=posix'],
   c_args: maha_c_args,
   install: false)

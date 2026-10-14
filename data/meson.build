@@ -3,6 +3,9 @@ maha_resources = gnome.compile_resources('maha-resources',
   c_name: 'maha_resources',
   source_dir: meson.current_source_dir())
 
+# favicon.png is the source master the icons/ sizes were generated from; it is
+# intentionally neither installed nor compiled into the gresource.
+
 # hicolor icon theme layout (<size>/apps/...) for the installed app icon.
 # strip_directory drops the leading "icons/" so the size dirs land directly
 # under hicolor/.

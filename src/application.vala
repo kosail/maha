@@ -65,6 +65,7 @@ public class Application : Adw.Application {
 
     /** Open files passed on the command line or by a file manager. */
     public override void open (GLib.File[] files, string hint) {
+        bool created = existing_window () == null;
         activate ();
         var window = existing_window ();
         if (window == null) {
@@ -76,8 +77,11 @@ public class Application : Adw.Application {
                 window.open_path ((!) path);
             }
         }
-        // Drop the empty placeholder tab that a fresh launch starts with.
-        window.close_placeholder_tab ();
+        // Drop the empty placeholder tab that a fresh launch starts with; a
+        // running instance keeps whatever tabs the user already had.
+        if (created) {
+            window.close_placeholder_tab ();
+        }
     }
 
     private MainWindow? existing_window () {

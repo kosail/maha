@@ -11,7 +11,7 @@ int main (string[] args) {
 
     GLib.Test.init (ref args);
 
-    // Recovery intentionally logs a warning; do not treat warnings as fatal.
+    // Only real errors are fatal; warnings (e.g. an unreadable config) are not.
     GLib.Log.set_always_fatal (GLib.LogLevelFlags.LEVEL_ERROR);
 
     Maha.register_document_tests ();

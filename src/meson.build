@@ -22,7 +22,7 @@ maha_ui_sources = files(
 # Non-GTK core (model, I/O, config, scheduling). Shared by the app and tests.
 maha_core = static_library('maha-core',
   maha_core_sources,
-  dependencies: [glib_dep, gio_dep],
+  dependencies: [glib_dep, gobject_dep],
   vala_args: ['--pkg=posix'],
   c_args: maha_c_args,
   vala_header: 'maha-core.h',

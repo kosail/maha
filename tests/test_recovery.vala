@@ -40,7 +40,6 @@ private void test_trailing_nul_recovered () {
     var path = GLib.Path.build_filename (dir, "corrupt.txt");
 
     uint8[] corrupt = { 104, 101, 108, 108, 111, 10, 0, 0, 0, 0 };
-    uint8[] original = { 104, 101, 108, 108, 111, 10, 0, 0, 0, 0 };
 
     try {
         GLib.FileUtils.set_data (path, corrupt);
@@ -50,7 +49,7 @@ private void test_trailing_nul_recovered () {
         assert (result.text == "hello\n");
 
         // Reading must not have rewritten the file.
-        assert (bytes_equal (read_raw (path), original));
+        assert (bytes_equal (read_raw (path), corrupt));
     } catch (GLib.Error e) {
         GLib.Test.message ("unexpected error: %s", e.message);
         GLib.Test.fail ();

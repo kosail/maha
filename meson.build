@@ -7,6 +7,7 @@ project('maha', ['vala', 'c'],
 gnome = import('gnome')
 
 glib_dep = dependency('glib-2.0')
+gobject_dep = dependency('gobject-2.0')
 gio_dep = dependency('gio-2.0')
 gtk_dep = dependency('gtk4', version: '>= 4.10')
 adw_dep = dependency('libadwaita-1', version: '>= 1.5')
