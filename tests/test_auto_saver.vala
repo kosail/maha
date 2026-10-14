@@ -8,6 +8,8 @@ public void register_auto_saver_tests () {
     GLib.Test.add_func ("/auto_saver/flush_immediate", test_flush_immediate);
     GLib.Test.add_func ("/auto_saver/source_consulted", test_source_consulted_at_save);
     GLib.Test.add_func ("/auto_saver/scratch_persisted", test_scratch_persisted);
+    GLib.Test.add_func ("/auto_saver/cancel_prevents_write", test_cancel_prevents_write);
+    GLib.Test.add_func ("/auto_saver/cancel_prevents_scratch", test_cancel_prevents_scratch);
 }
 
 private void test_debounced_save () {
@@ -115,6 +117,43 @@ private void test_scratch_persisted () {
     assert (!document.dirty);
 
     FileStore.remove (scratch);
+}
+
+// A cancelled autosave (as happens when a new tab is discarded) must not write.
+private void test_cancel_prevents_write () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "cancel.txt");
+
+    var document = new Document (path, "");
+    var source = new StringTextSource ();
+    source.text = "must not be written";
+    document.dirty = true;
+
+    var saver = new AutoSaver (50);
+    saver.schedule (document, source);
+    saver.cancel (document);
+
+    pump (200);
+
+    assert (!GLib.FileUtils.test (path, GLib.FileTest.EXISTS));
+}
+
+// The discarded-tab case: cancelling must not recreate the scratch file.
+private void test_cancel_prevents_scratch () {
+    var document = new Document (null, "");
+    var source = new StringTextSource ();
+    source.text = "gone";
+    document.dirty = true;
+
+    var saver = new AutoSaver (50);
+    saver.schedule (document, source);
+    string scratch = document.autosave_path;
+    saver.cancel (document);
+    document.dirty = false;
+
+    pump (200);
+
+    assert (!GLib.FileUtils.test (scratch, GLib.FileTest.EXISTS));
 }
 
 }

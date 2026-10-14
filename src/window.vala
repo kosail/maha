@@ -25,6 +25,10 @@ public class MainWindow : Adw.ApplicationWindow {
     private Adw.ToolbarView toolbar_view;
     private ReopenStack reopen_stack = new ReopenStack ();
 
+    // Coalesce bursts of session-changing signals into a single write.
+    private uint session_save_id = 0;
+    private const uint SESSION_DEBOUNCE_MS = 500;
+
     // Suppress session writes while restoring the previous session and while
     // the window is being torn down (page removal fires the same signals).
     private bool restoring = false;
@@ -62,7 +66,7 @@ public class MainWindow : Adw.ApplicationWindow {
 
         this.close_request.connect (() => {
             if (flush_all ()) {
-                this.shutting_down = true;
+                mark_shutting_down ();
                 return false;
             }
             show_message ("Could not save all tabs; the window was kept open to avoid data loss.");
@@ -70,8 +74,9 @@ public class MainWindow : Adw.ApplicationWindow {
         });
     }
 
-    /** Mark the window as closing so teardown does not rewrite the session. */
+    /** Persist the session and mark the window as closing so teardown does not rewrite it. */
     public void mark_shutting_down () {
+        flush_session ();
         this.shutting_down = true;
     }
 
@@ -100,11 +105,15 @@ public class MainWindow : Adw.ApplicationWindow {
 
     /** Open `path` in a tab, focusing it if already open. Returns false on failure. */
     public bool open_path (string path) {
-        return open_path_page (path) != null;
+        return open_path_page (path, true) != null;
     }
 
-    /** Open `path`, returning its page (new or already-open), or null on failure. */
-    private Adw.TabPage? open_path_page (string path) {
+    /**
+     * Open `path`, returning its page (new or already-open), or null when it
+     * could not be opened. Binary files are refused (or offered read-only) when
+     * `interactive` is set, and skipped silently otherwise (session restore).
+     */
+    private Adw.TabPage? open_path_page (string path, bool interactive = true) {
         var existing = find_tab_by_path (path);
         if (existing != null) {
             var page = this.tab_view.get_page (existing);
@@ -112,28 +121,69 @@ public class MainWindow : Adw.ApplicationWindow {
             return page;
         }
 
-        Document document;
-        bool recovered = false;
+        FileStore.ReadResult result;
         try {
-            string text = FileStore.read (path, out recovered);
-            document = new Document (path, text);
+            result = FileStore.read (path);
         } catch (GLib.Error e) {
-            show_message ("Could not open \"%s\": %s".printf (path, e.message));
+            if (interactive) {
+                show_message ("Could not open \"%s\": %s".printf (path, e.message));
+            }
             return null;
         }
 
-        var page = add_tab (document);
-
-        if (recovered) {
-            show_message ("\"%s\" contained corrupt data; the recoverable part was restored and saved.".printf (path));
+        if (result.kind == FileStore.ContentKind.BINARY) {
+            if (interactive) {
+                prompt_open_binary (path);
+            }
+            return null;
         }
-        return page;
+
+        string? notice = null;
+        if (result.kind == FileStore.ContentKind.CORRUPT_TEXT) {
+            notice = "Corrupted data was removed; the file is unchanged until you save.";
+        }
+
+        return add_tab (new Document (path, result.text), notice);
+    }
+
+    /**
+     * Tell the user a file is not text and offer to open it read-only, where it
+     * can be viewed but never written back over the original.
+     */
+    private void prompt_open_binary (string path) {
+        var dialog = new Adw.AlertDialog (
+            "Not a text file",
+            "\"%s\" is not plain text, so it cannot be edited. Open it read-only?".printf (GLib.Path.get_basename (path)));
+        dialog.add_response ("cancel", "Cancel");
+        dialog.add_response ("open", "Open Read-Only");
+        dialog.set_response_appearance ("open", Adw.ResponseAppearance.SUGGESTED);
+        dialog.set_default_response ("open");
+        dialog.set_close_response ("cancel");
+
+        dialog.choose.begin (this, null, (obj, res) => {
+            string response = dialog.choose.end (res);
+            if (response != "open") {
+                return;
+            }
+            try {
+                var result = FileStore.read (path);
+                var document = new Document (path, result.text);
+                document.read_only = true;
+                add_tab (document, "This file is not plain text and is open read-only.");
+            } catch (GLib.Error e) {
+                show_message ("Could not open \"%s\": %s".printf (path, e.message));
+            }
+        });
     }
 
     /** Save the active tab: instant save, or a Save dialog for a new file. */
     public void save_current () {
         var tab = current_tab ();
         if (tab == null) {
+            return;
+        }
+        if (tab.document.read_only) {
+            show_message ("This file is open read-only.");
             return;
         }
         if (tab.document.is_new) {
@@ -146,6 +196,26 @@ public class MainWindow : Adw.ApplicationWindow {
     /** Create a new empty tab. */
     public void new_tab () {
         add_empty_tab ();
+    }
+
+    /**
+     * Close the pristine, empty "New tab" placeholder, if one is present and
+     * other tabs exist. Used when files are opened so a launch that passes a
+     * file does not also show an empty tab.
+     */
+    public void close_placeholder_tab () {
+        if (this.tab_view.get_n_pages () <= 1) {
+            return;
+        }
+        int pages = this.tab_view.get_n_pages ();
+        for (int i = 0; i < pages; i++) {
+            var page = this.tab_view.get_nth_page (i);
+            var tab = page.get_child () as EditorTab;
+            if (tab != null && tab.document.is_new && !tab.has_unsaved_content ()) {
+                tab_view_close_page (this.tab_view, page);
+                return;
+            }
+        }
     }
 
     /**
@@ -366,6 +436,8 @@ public class MainWindow : Adw.ApplicationWindow {
             } else {
                 record_closed_tab (tab.document);
             }
+        } else {
+            show_message ("Could not save \"%s\". The tab was kept open.".printf (tab.document.display_name));
         }
         this.tab_view.close_page_finish (page, ok);
         return true;
@@ -373,7 +445,7 @@ public class MainWindow : Adw.ApplicationWindow {
 
     /** Remember a just-closed file so Ctrl+Shift+T can reopen it. */
     private void record_closed_tab (Document document) {
-        if (!document.is_new) {
+        if (!document.is_new && !document.read_only) {
             this.reopen_stack.record ((!) document.path);
         }
     }
@@ -415,7 +487,7 @@ public class MainWindow : Adw.ApplicationWindow {
             if (!GLib.FileUtils.test (entry.value, GLib.FileTest.EXISTS)) {
                 return null;
             }
-            return open_path_page (entry.value);
+            return open_path_page (entry.value, false);
         }
 
         if (!Paths.is_safe_scratch_id (entry.value)) {
@@ -426,9 +498,14 @@ public class MainWindow : Adw.ApplicationWindow {
             return null;
         }
         try {
-            bool recovered;
-            string text = FileStore.read (scratch, out recovered);
-            return add_tab (Document.restore_scratch (entry.value, text));
+            var result = FileStore.read (scratch);
+            if (result.kind == FileStore.ContentKind.BINARY) {
+                return null;
+            }
+            string? notice = result.kind == FileStore.ContentKind.CORRUPT_TEXT
+                ? "Corrupted data was removed; the file is unchanged until you save."
+                : null;
+            return add_tab (Document.restore_scratch (entry.value, result.text), notice);
         } catch (GLib.Error e) {
             GLib.warning ("maha: could not restore scratch \"%s\": %s", scratch, e.message);
             return null;
@@ -444,47 +521,71 @@ public class MainWindow : Adw.ApplicationWindow {
     }
 
     private EditorTab? find_tab_by_path (string path) {
+        // Stat the query once, then each tab once (symlinks/hardlinks included).
+        Posix.Stat target;
+        bool have_target = Posix.stat (path, out target) == 0;
+
         int pages = this.tab_view.get_n_pages ();
         for (int i = 0; i < pages; i++) {
             var tab = this.tab_view.get_nth_page (i).get_child () as EditorTab;
-            if (tab != null && tab.document.path != null && same_file (tab.document.path, path)) {
+            if (tab == null || tab.document.path == null) {
+                continue;
+            }
+            string tab_path = (!) tab.document.path;
+            if (tab_path == path) {
+                return tab;
+            }
+            if (!have_target) {
+                continue;
+            }
+            Posix.Stat st;
+            if (Posix.stat (tab_path, out st) == 0 && st.st_dev == target.st_dev && st.st_ino == target.st_ino) {
                 return tab;
             }
         }
         return null;
     }
 
-    /** True when both paths refer to the same file (symlinks/hardlinks included). */
-    private static bool same_file (string a, string b) {
-        if (a == b) {
-            return true;
+    /** Schedule a session write, coalescing bursts of signals into one. */
+    private void record_session () {
+        if (this.restoring || this.shutting_down) {
+            return;
         }
-        Posix.Stat sa;
-        Posix.Stat sb;
-        if (Posix.stat (a, out sa) != 0) {
-            return false;
+        if (this.session_save_id != 0) {
+            return;
         }
-        if (Posix.stat (b, out sb) != 0) {
-            return false;
+        this.session_save_id = GLib.Timeout.add (SESSION_DEBOUNCE_MS, () => {
+            this.session_save_id = 0;
+            write_session ();
+            return GLib.Source.REMOVE;
+        });
+    }
+
+    /** Write the session immediately, cancelling any pending debounced write. */
+    public void flush_session () {
+        if (this.session_save_id != 0) {
+            GLib.Source.remove (this.session_save_id);
+            this.session_save_id = 0;
         }
-        return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
+        write_session ();
     }
 
     /** Persist the list of open tabs and the active index for next launch. */
-    private void record_session () {
-        if (this.restoring || this.shutting_down) {
+    private void write_session () {
+        if (this.shutting_down) {
             return;
         }
 
         var tabs = new GLib.GenericArray<SessionStore.Tab> ();
         var selected = this.tab_view.get_selected_page ();
         int pages = this.tab_view.get_n_pages ();
+        // 0 is the fallback when the selected page is a skipped read-only tab.
         int active = 0;
 
         for (int i = 0; i < pages; i++) {
             var page = this.tab_view.get_nth_page (i);
             var tab = page.get_child () as EditorTab;
-            if (tab == null) {
+            if (tab == null || tab.document.read_only) {
                 continue;
             }
             if (tab.document.is_new) {
@@ -508,8 +609,8 @@ public class MainWindow : Adw.ApplicationWindow {
         add_tab (new Document (null, ""));
     }
 
-    private Adw.TabPage add_tab (Document document) {
-        var tab = new EditorTab (document, this.auto_saver);
+    private Adw.TabPage add_tab (Document document, string? notice = null) {
+        var tab = new EditorTab (document, this.auto_saver, notice);
         var page = this.tab_view.append (tab);
         page.set_title (trim_title (document.display_name));
         this.tab_view.set_selected_page (page);

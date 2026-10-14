@@ -9,6 +9,8 @@ namespace Maha {
  * is persisted, so the history is lost when the app exits.
  */
 public class ReopenStack : GLib.Object {
+    private const uint MAX_ENTRIES = 32;
+
     private GLib.Queue<string> paths = new GLib.Queue<string> ();
 
     public bool is_empty {
@@ -17,7 +19,20 @@ public class ReopenStack : GLib.Object {
 
     /** Record a just-closed file path. */
     public void record (string path) {
+        // Never stack the same path twice: drop an existing entry first. The
+        // queue's default compare is pointer-based, so compare by value here.
+        uint len = this.paths.get_length ();
+        for (uint i = 0; i < len; i++) {
+            if (this.paths.peek_nth (i) == path) {
+                this.paths.pop_nth (i);
+                break;
+            }
+        }
         this.paths.push_head (path);
+        // Bound the history so a long session cannot grow it without limit.
+        while (this.paths.get_length () > MAX_ENTRIES) {
+            this.paths.pop_tail ();
+        }
     }
 
     /** Pop the most recently closed path, or null when the history is empty. */

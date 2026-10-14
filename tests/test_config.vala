@@ -16,6 +16,7 @@ public void register_config_tests () {
     GLib.Test.add_func ("/config/line_height_invalid", test_line_height_invalid_falls_back);
     GLib.Test.add_func ("/config/line_height_normal", test_line_height_normal);
     GLib.Test.add_func ("/config/clean_output", test_clean_output);
+    GLib.Test.add_func ("/config/nested_parent_created", test_config_nested_parent_created);
 }
 
 private void test_creates_default_file () {
@@ -188,6 +189,17 @@ private void test_clean_output () {
 
     // The hand-written file must still round-trip through the loader.
     var config = new ConfigStore (path).load ();
+    assert (config.transparency == Config.DEFAULT_TRANSPARENCY);
+}
+
+// The store must create its own parent directory, not the global config dir.
+private void test_config_nested_parent_created () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "sub", "config.ini");
+
+    var config = new ConfigStore (path).load ();
+
+    assert (GLib.FileUtils.test (path, GLib.FileTest.EXISTS));
     assert (config.transparency == Config.DEFAULT_TRANSPARENCY);
 }
 

@@ -25,10 +25,12 @@ But I have to be honest with you: I needed this app, but I don't have for it... 
 - Tabs.
 - Autosave on a debounce, on by default (since I always need autosave, I set no autosave disabling mechanism).
 - Atomic writes, so a crash never leaves a half-written file.
-- Recovery for files with NUL corruption.
+- Recovery for text files with NUL corruption (a crash can zero-fill a file's tail), applied non-destructively: the file is only rewritten when you save.
+- Binary files (images, PDFs, executables) are never mistaken for corrupt text. maha warns and only offers to open them read-only, so they can never be overwritten.
 - Unsaved documents are backed by a scratch file, so a "New tab" survives a crash before you ever name it (just like VS Code does).
 - Closing a new tab that still has unsaved text asks whether to save, discard, or cancel.
 - Session restore: reopens every tab from the previous run (files and unsaved tabs), with the previously active tab focused.
+- Opens files from the command line (`maha file.txt`) or a file manager.
 - Configurable window transparency, font family, font size, and line height.
 - Follows the system light/dark theme.
 
@@ -37,8 +39,8 @@ But I have to be honest with you: I needed this app, but I don't have for it... 
 - A Vala compiler (`valac`)
 - Meson and Ninja
 - `glib-2.0` and `gio-2.0`
-- `gtk4`
-- `libadwaita-1` (>= 1.0)
+- `gtk4` (>= 4.10)
+- `libadwaita-1` (>= 1.5)
 
 For the GUI smoke test you also need `Xvfb`, `xdotool`, and `dbus-run-session`. The test skips itself if they are missing.
 
@@ -93,7 +95,7 @@ The session file at `~/.config/maha/session` remembers every open tab (files and
 
 **Atomic saves.** `save_atomic` never writes over your file in place. It writes a temporary file in the same directory, flushes it with `fsync`, then renames it over the destination and flushes the directory. A crash at any point leaves either the old file or the new one, never a mix of the two. See `src/file_store.vala`.
 
-**Recovery.** On read, a NUL byte is treated as a sign of corruption. Everything from the first NUL onward is dropped and the recoverable prefix is written back on a best-effort basis, so a read-only file can still be opened. Any other invalid byte sequence is replaced with U+FFFD before the text reaches the editor, since the editor only accepts valid UTF-8.
+**Reading is read-only.** Opening a file never modifies it. maha classifies the bytes first: valid UTF-8 is text; a file whose tail was zero-filled by a crash is reported as corruption and its recoverable prefix is shown, but the file is rewritten only if you save; anything else (binary data, invalid UTF-8, control-heavy bytes) is refused, and you can choose to open it read-only, where it can never be written back. Only regular files are opened (a FIFO or device is refused rather than read forever), and files above 64 MiB are declined to keep memory in check.
 
 **Autosave.** Editing a document arms a debounce timer. When it fires, the current text is pulled from the editor and written through the same atomic path. Text is pulled lazily at save time, so typing in a large file does not copy the whole buffer on every keystroke. See `src/auto_saver.vala`.
 
@@ -105,7 +107,7 @@ The session file at `~/.config/maha/session` remembers every open tab (files and
 meson test -C build
 ```
 
-The core suite has 44 tests covering document state, atomic I/O, corruption recovery, config parsing, autosave, and session handling. There is also a headless GUI smoke test that launches the real binary under Xvfb and sends `Ctrl+S`, which guards the GTK shortcut controller that the unit tests cannot reach.
+The core suite has 64 tests covering document state, atomic I/O, corruption recovery, binary detection, config parsing, autosave, and session handling. There is also a headless GUI smoke test that launches the real binary under Xvfb and sends `Ctrl+S`, which guards the GTK shortcut controller that the unit tests cannot reach.
 
 ## Troubleshooting
 

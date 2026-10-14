@@ -14,6 +14,12 @@ public class Document : GLib.Object {
     public string text { get; set; default = ""; }
     public bool dirty { get; set; default = false; }
 
+    /**
+     * When true the document is shown read-only and is never written back
+     * (used for files that are not plain text).
+     */
+    public bool read_only { get; set; default = false; }
+
     /** Identifier of the backing scratch file, for a path-less document. */
     public string? scratch_id { get; private set; default = null; }
 

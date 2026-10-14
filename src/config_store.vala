@@ -23,10 +23,6 @@ public class ConfigStore : GLib.Object {
         this.path = path ?? default_path ();
     }
 
-    public static string config_dir () {
-        return Paths.config_dir ();
-    }
-
     public static string default_path () {
         return Paths.config_file ();
     }
@@ -61,7 +57,10 @@ public class ConfigStore : GLib.Object {
     }
 
     public void save (Config config) {
-        GLib.DirUtils.create_with_parents (config_dir (), 0700);
+        string dir = GLib.Path.get_dirname (path);
+        if (dir != null && dir != "") {
+            GLib.DirUtils.create_with_parents (dir, 0700);
+        }
 
         // Written by hand rather than via GLib.KeyFile so doubles are rendered
         // readably (e.g. `0.85`, not `0.84999999999999998`). KeyFile still
@@ -69,7 +68,7 @@ public class ConfigStore : GLib.Object {
         var data = new StringBuilder ();
         data.append ("[appearance]\n");
         data.append ("transparency=").append (format_double (config.transparency)).append_c ('\n');
-        data.append ("font=").append (escape_value (config.font)).append_c ('\n');
+        data.append ("font=").append (keyfile_escape (config.font)).append_c ('\n');
         data.append ("font_size=").append (config.font_size.to_string ()).append_c ('\n');
         data.append ("line_height=").append (format_double (config.line_height)).append_c ('\n');
         data.append ("\n[editor]\n");
@@ -85,26 +84,7 @@ public class ConfigStore : GLib.Object {
     }
 
     private static string format_double (double value) {
-        return "%.4g".printf (value);
-    }
-
-    /** Escape a value the way GLib.KeyFile expects when reading it back. */
-    private static string escape_value (string value) {
-        var sb = new StringBuilder ();
-        foreach (uint8 b in value.data) {
-            switch (b) {
-            case '\\': sb.append ("\\\\"); break;
-            case '\n': sb.append ("\\n"); break;
-            case '\r': sb.append ("\\r"); break;
-            case '\t': sb.append ("\\t"); break;
-            default:
-                if (b >= 0x20 && b != 0x7f) {
-                    sb.append_c ((char) b);
-                }
-                break;
-            }
-        }
-        return sb.str;
+        return "%g".printf (value);
     }
 
     private static double read_double (GLib.KeyFile keyfile, string group, string key, double fallback) {

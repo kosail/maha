@@ -2,9 +2,10 @@
 Type=Application
 Name=maha
 Comment=A minimal notepad
-Exec=maha
+Exec=maha %F
 Icon=com.korealm.maha
 Terminal=false
 Categories=Utility;TextEditor;
+MimeType=text/plain;
 StartupNotify=true
 StartupWMClass=maha

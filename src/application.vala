@@ -12,12 +12,19 @@ public class Application : Adw.Application {
     public Application () {
         Object (
             application_id: "com.korealm.maha",
-            flags: GLib.ApplicationFlags.DEFAULT_FLAGS
+            flags: GLib.ApplicationFlags.HANDLES_OPEN
         );
     }
 
     public override void startup () {
         base.startup ();
+
+        // Make the embedded icons reachable as an icon theme, so the window
+        // icon resolves even when running from the build directory.
+        var display = Gdk.Display.get_default ();
+        if (display != null) {
+            Gtk.IconTheme.get_for_display (display).add_resource_path ("/com/korealm/maha/icons");
+        }
 
         this.config = new ConfigStore ().load ();
         this.auto_saver = new AutoSaver (config.effective_autosave_ms);
@@ -54,6 +61,23 @@ public class Application : Adw.Application {
             window = new MainWindow (this, this.config, this.auto_saver, this.session);
         }
         window.present ();
+    }
+
+    /** Open files passed on the command line or by a file manager. */
+    public override void open (GLib.File[] files, string hint) {
+        activate ();
+        var window = existing_window ();
+        if (window == null) {
+            return;
+        }
+        foreach (var file in files) {
+            string? path = file.get_path ();
+            if (path != null) {
+                window.open_path ((!) path);
+            }
+        }
+        // Drop the empty placeholder tab that a fresh launch starts with.
+        window.close_placeholder_tab ();
     }
 
     private MainWindow? existing_window () {

@@ -3,6 +3,7 @@ test_sources = files(
   'test_document.vala',
   'test_file_store.vala',
   'test_recovery.vala',
+  'test_binary.vala',
   'test_config.vala',
   'test_auto_saver.vala',
   'test_session.vala',

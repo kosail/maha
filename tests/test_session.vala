@@ -9,6 +9,8 @@ public void register_session_tests () {
     GLib.Test.add_func ("/session/legacy_single", test_legacy_single);
     GLib.Test.add_func ("/session/legacy_raw_path", test_legacy_raw_path);
     GLib.Test.add_func ("/session/missing", test_missing_file);
+    GLib.Test.add_func ("/session/value_with_newline", test_value_with_newline);
+    GLib.Test.add_func ("/session/nested_parent_created", test_session_nested_parent_created);
 }
 
 private void test_session_roundtrip () {
@@ -101,6 +103,34 @@ private void test_missing_file () {
     var path = GLib.Path.build_filename (dir, "does-not-exist");
 
     assert (new SessionStore (path).load ().tabs.length == 0);
+}
+
+// A path containing a newline must round-trip (not corrupt the file).
+private void test_value_with_newline () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "session");
+
+    var store = new SessionStore (path);
+    var tabs = new GLib.GenericArray<SessionStore.Tab> ();
+    tabs.add (new SessionStore.Tab (SessionStore.KIND_FILE, "/tmp/weird\nname.txt"));
+    store.save (tabs, 0);
+
+    var state = store.load ();
+    assert (state.tabs.length == 1);
+    assert (state.tabs.get (0).value == "/tmp/weird\nname.txt");
+}
+
+// The store must create its own parent directory, not the global config dir.
+private void test_session_nested_parent_created () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "sub", "deeper", "session");
+
+    var store = new SessionStore (path);
+    var tabs = new GLib.GenericArray<SessionStore.Tab> ();
+    tabs.add (new SessionStore.Tab (SessionStore.KIND_FILE, "/tmp/x.txt"));
+    store.save (tabs, 0);
+
+    assert (GLib.FileUtils.test (path, GLib.FileTest.EXISTS));
 }
 
 }

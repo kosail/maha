@@ -84,7 +84,10 @@ public class SessionStore : GLib.Object {
     }
 
     public void save (GLib.GenericArray<Tab> tabs, int active) {
-        GLib.DirUtils.create_with_parents (Paths.config_dir (), 0700);
+        string dir = GLib.Path.get_dirname (path);
+        if (dir != null && dir != "") {
+            GLib.DirUtils.create_with_parents (dir, 0700);
+        }
 
         var keyfile = new GLib.KeyFile ();
         keyfile.set_integer (GROUP, KEY_COUNT, (int) tabs.length);
@@ -92,8 +95,8 @@ public class SessionStore : GLib.Object {
         for (uint i = 0; i < tabs.length; i++) {
             var tab = tabs.get (i);
             string group = "tab%u".printf (i);
-            keyfile.set_string (group, KEY_KIND, tab.kind);
-            keyfile.set_string (group, KEY_VALUE, tab.value);
+            keyfile.set_value (group, KEY_KIND, keyfile_escape (tab.kind));
+            keyfile.set_value (group, KEY_VALUE, keyfile_escape (tab.value));
         }
 
         size_t length;
@@ -134,8 +137,8 @@ public class SessionStore : GLib.Object {
                 continue;
             }
             try {
-                string kind = keyfile.get_string (group, KEY_KIND);
-                string value = keyfile.get_string (group, KEY_VALUE);
+                string kind = keyfile_unescape (keyfile.get_value (group, KEY_KIND));
+                string value = keyfile_unescape (keyfile.get_value (group, KEY_VALUE));
                 if (value != "") {
                     state.tabs.add (new Tab (kind, value));
                 }
@@ -153,8 +156,8 @@ public class SessionStore : GLib.Object {
 
     private static void load_single (GLib.KeyFile keyfile, State state) {
         try {
-            string kind = keyfile.get_string (GROUP_LAST, KEY_KIND);
-            string value = keyfile.get_string (GROUP_LAST, KEY_VALUE);
+            string kind = keyfile_unescape (keyfile.get_value (GROUP_LAST, KEY_KIND));
+            string value = keyfile_unescape (keyfile.get_value (GROUP_LAST, KEY_VALUE));
             if (value != "") {
                 state.tabs.add (new Tab (kind, value));
             }

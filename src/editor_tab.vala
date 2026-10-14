@@ -16,7 +16,7 @@ public class EditorTab : Gtk.Box, TextSource {
     private AutoSaver auto_saver;
     private bool loading = false;
 
-    public EditorTab (Document document, AutoSaver auto_saver) {
+    public EditorTab (Document document, AutoSaver auto_saver, string? notice = null) {
         Object (orientation: Gtk.Orientation.VERTICAL);
         this.document = document;
         this.auto_saver = auto_saver;
@@ -29,12 +29,25 @@ public class EditorTab : Gtk.Box, TextSource {
         this.view.set_bottom_margin (12);
         this.view.add_css_class ("maha-editor");
 
+        if (document.read_only) {
+            this.view.set_editable (false);
+            this.view.set_cursor_visible (false);
+        }
+
         this.loading = true;
         this.view.buffer.text = document.text;
         this.view.buffer.set_modified (false);
         this.loading = false;
 
         this.view.buffer.changed.connect (on_changed);
+
+        if (notice != null) {
+            var banner = new Adw.Banner ((!) notice);
+            banner.set_revealed (true);
+            banner.set_button_label ("Dismiss");
+            banner.button_clicked.connect (() => banner.set_revealed (false));
+            this.append (banner);
+        }
 
         var scroller = new Gtk.ScrolledWindow ();
         scroller.set_hexpand (true);
@@ -55,6 +68,10 @@ public class EditorTab : Gtk.Box, TextSource {
 
     /** Delete this document's scratch file, if it has one. */
     public void discard_scratch () {
+        // Cancel the pending autosave first: otherwise the debounce timer would
+        // fire after the file is gone and recreate the scratch file.
+        auto_saver.cancel (document);
+        document.dirty = false;
         if (document.is_new && document.scratch_id != null) {
             FileStore.remove (Paths.scratch_file ((!) document.scratch_id));
         }
@@ -74,6 +91,10 @@ public class EditorTab : Gtk.Box, TextSource {
      * document out of scratch mode. Returns false on failure.
      */
     public bool save_as (string path) {
+        if (document.read_only) {
+            return false;
+        }
+
         string text = view.buffer.text;
         string? scratch = document.is_new ? document.autosave_path : null;
 
@@ -98,7 +119,7 @@ public class EditorTab : Gtk.Box, TextSource {
     }
 
     private void on_changed () {
-        if (loading) {
+        if (loading || document.read_only) {
             return;
         }
         document.dirty = true;
