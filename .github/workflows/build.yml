@@ -34,11 +34,6 @@ jobs:
             build-essential pkg-config valac meson ninja-build \
             libgtk-4-dev libadwaita-1-dev
 
-      - name: Install test dependencies
-        run: |
-          sudo apt-get install -y --no-install-recommends \
-            xvfb xdotool dbus
-
       - name: Configure
         run: meson setup build --buildtype=release --prefix=/usr
 
@@ -46,7 +41,9 @@ jobs:
         run: meson compile -C build
 
       - name: Test
-        run: meson test -C build --print-errorlogs
+        # Only the unit suite: the `gui-smoke` test needs an X server and is
+        # exercised locally, not in CI.
+        run: meson test -C build core --print-errorlogs
 
       - name: Package
         run: |
