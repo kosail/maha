@@ -23,10 +23,10 @@ public class EditorTab : Gtk.Box, TextSource {
 
         this.view = new Gtk.TextView ();
         this.view.set_wrap_mode (Gtk.WrapMode.WORD_CHAR);
-        this.view.set_left_margin (8);
-        this.view.set_right_margin (8);
-        this.view.set_top_margin (8);
-        this.view.set_bottom_margin (8);
+        this.view.set_left_margin (12);
+        this.view.set_right_margin (12);
+        this.view.set_top_margin (12);
+        this.view.set_bottom_margin (12);
         this.view.add_css_class ("maha-editor");
 
         this.loading = true;

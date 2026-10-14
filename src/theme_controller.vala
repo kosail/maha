@@ -54,6 +54,9 @@ public class ThemeController : GLib.Object {
         css.append ("window.maha tabbar, window.maha tabbar .box {"
             + " background: none; background-color: transparent;"
             + " background-image: none; box-shadow: none; }\n");
+        // With a single tab the header shows a plain filename label instead of
+        // the tab strip; dim it so the user's focus stays on the text content.
+        css.append ("window.maha .maha-single-title { opacity: 0.7; }\n");
         css.append ("window.maha toolbarview, window.maha tabview,"
             + " window.maha scrolledwindow {"
             + " background-color: transparent; background-image: none; }\n");

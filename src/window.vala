@@ -15,6 +15,8 @@ public class MainWindow : Adw.ApplicationWindow {
     private ThemeController theme;
     private Adw.TabView tab_view;
     private Adw.TabBar tab_bar;
+    private Adw.HeaderBar header;
+    private Gtk.Label single_title;
     private Adw.ToolbarView toolbar_view;
 
     public MainWindow (Gtk.Application application, Config config, AutoSaver auto_saver, SessionStore session) {
@@ -30,7 +32,11 @@ public class MainWindow : Adw.ApplicationWindow {
         this.tab_view = new Adw.TabView ();
         this.tab_view.close_page.connect (on_close_page);
         this.tab_view.page_detached.connect (on_page_detached);
-        this.tab_view.notify["selected-page"].connect (() => record_current_document ());
+        this.tab_view.notify["selected-page"].connect (() => {
+            record_current_document ();
+            update_title_widget ();
+        });
+        this.tab_view.notify["n-pages"].connect (update_title_widget);
 
         build_chrome ();
         install_shortcuts ();
@@ -39,6 +45,7 @@ public class MainWindow : Adw.ApplicationWindow {
 
         restore_session ();
         record_current_document ();
+        update_title_widget ();
 
         this.close_request.connect (() => {
             if (flush_all ()) {
@@ -164,8 +171,9 @@ public class MainWindow : Adw.ApplicationWindow {
                 }
                 var page = this.tab_view.get_page (tab);
                 if (page != null) {
-                    page.set_title (tab.document.display_name);
+                    page.set_title (trim_title (tab.document.display_name));
                 }
+                update_title_widget ();
                 record_current_document ();
             } catch (GLib.Error e) {
                 if (!is_dialog_cancelled (e)) {
@@ -204,8 +212,20 @@ public class MainWindow : Adw.ApplicationWindow {
         this.tab_bar = new Adw.TabBar ();
         this.tab_bar.set_view (this.tab_view);
         this.tab_bar.add_css_class ("inline");
+        // Keep the tab strip revealed even with a single tab. libadwaita's
+        // default (autohide) collapses it when there is only one tab, which
+        // makes the header bar shorter and shifts the content when a second
+        // tab is opened.
+        this.tab_bar.set_autohide (false);
 
-        var header = new Adw.HeaderBar ();
+        // With a single tab the header shows a plain filename label instead of
+        // the tab strip; with two or more it shows the tab strip. The title
+        // widget is swapped directly (Adw.HeaderBar supports this at runtime).
+        this.single_title = new Gtk.Label ("");
+        this.single_title.add_css_class ("maha-single-title");
+        this.single_title.set_ellipsize (Pango.EllipsizeMode.NONE);
+
+        this.header = new Adw.HeaderBar ();
 
         var open_content = new Adw.ButtonContent ();
         open_content.set_icon_name ("folder-open-symbolic");
@@ -214,18 +234,18 @@ public class MainWindow : Adw.ApplicationWindow {
         open_button.set_child (open_content);
         open_button.set_tooltip_text ("Open file (Ctrl+O)");
         open_button.clicked.connect (() => open_file_dialog ());
-        header.pack_start (open_button);
+        this.header.pack_start (open_button);
 
         // Plain flat "+" on the right of the header bar.
         var new_button = new Gtk.Button.from_icon_name ("tab-new-symbolic");
         new_button.set_tooltip_text ("New tab (Ctrl+T)");
         new_button.clicked.connect (() => add_empty_tab ());
-        header.pack_end (new_button);
+        this.header.pack_end (new_button);
 
-        header.set_title_widget (this.tab_bar);
+        this.header.set_title_widget (this.tab_bar);
 
         this.toolbar_view = new Adw.ToolbarView ();
-        this.toolbar_view.add_top_bar (header);
+        this.toolbar_view.add_top_bar (this.header);
         this.toolbar_view.set_content (this.tab_view);
         this.set_content (this.toolbar_view);
     }
@@ -310,8 +330,49 @@ public class MainWindow : Adw.ApplicationWindow {
     private void add_tab (Document document) {
         var tab = new EditorTab (document, this.auto_saver);
         var page = this.tab_view.append (tab);
-        page.set_title (document.display_name);
+        page.set_title (trim_title (document.display_name));
         this.tab_view.set_selected_page (page);
+    }
+
+    /**
+     * Show the tab strip when there are two or more tabs, and a plain centered
+     * filename (no tab chrome) when there is a single tab.
+     */
+    private void update_title_widget () {
+        if (this.tab_view.get_n_pages () > 1) {
+            this.header.set_title_widget (this.tab_bar);
+            return;
+        }
+        var tab = current_tab ();
+        this.single_title.set_text (tab != null ? trim_title (tab.document.display_name) : "");
+        this.header.set_title_widget (this.single_title);
+    }
+
+    /**
+     * Truncate a title to 64 characters (UTF-8 aware), appending an ellipsis
+     * when it is longer, so a long filename never dominates the header.
+     */
+    private static string trim_title (string title) {
+        const int max_chars = 64;
+        if (title.char_count () <= max_chars) {
+            return title;
+        }
+        int bytes = 0;
+        int chars = 0;
+        while (chars < max_chars) {
+            uint8 b = (uint8) title[bytes];
+            if (b < 0x80) {
+                bytes += 1;
+            } else if (b < 0xE0) {
+                bytes += 2;
+            } else if (b < 0xF0) {
+                bytes += 3;
+            } else {
+                bytes += 4;
+            }
+            chars++;
+        }
+        return title.substring (0, (long) bytes) + "...";
     }
 
     private static bool is_dialog_cancelled (GLib.Error e) {
