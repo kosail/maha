@@ -50,6 +50,10 @@ public class Application : Adw.Application {
         duplicate_line_action.activate.connect (on_duplicate_line);
         add_action (duplicate_line_action);
 
+        var find_action = new GLib.SimpleAction ("find", null);
+        find_action.activate.connect (on_find);
+        add_action (find_action);
+
         var close_tab_action = new GLib.SimpleAction ("close-tab", null);
         close_tab_action.activate.connect (on_close_tab);
         add_action (close_tab_action);
@@ -150,6 +154,13 @@ public class Application : Adw.Application {
         var window = this.active_window as MainWindow;
         if (window != null) {
             window.duplicate_line ();
+        }
+    }
+
+    private void on_find () {
+        var window = this.active_window as MainWindow;
+        if (window != null) {
+            window.find ();
         }
     }
 

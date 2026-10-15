@@ -13,6 +13,7 @@ maha_core_sources = files(
 
 maha_ui_sources = files(
   'theme_controller.vala',
+  'editor_search.vala',
   'editor_tab.vala',
   'window.vala',
   'application.vala',

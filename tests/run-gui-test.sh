@@ -98,10 +98,19 @@ sleep 0.5
 xdotool key ctrl+minus
 sleep 0.5
 xdotool key ctrl+0
+sleep 0.5
+# In-document search: open, type, next match (Return), close (Escape).
+xdotool key ctrl+f
+sleep 0.5
+xdotool type "hello"
+sleep 0.5
+xdotool key Return
+sleep 0.5
+xdotool key Escape
 sleep 2
 
 if kill -0 "$APP_PID" 2>/dev/null; then
-    echo "PASS: maha survived Ctrl+S, Ctrl+N, Ctrl+D and font zoom"
+    echo "PASS: maha survived Ctrl+S, Ctrl+N, Ctrl+D, font zoom and search"
     exit 0
 fi
 

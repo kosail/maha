@@ -40,6 +40,7 @@ But I have to be honest with you: I needed this app, but I don't have for it... 
 - Session restore: reopens every tab from the previous run (files and unsaved tabs), with the previously active tab focused.
 - Opens files from the command line (`maha file.txt`) or a file manager.
 - Configurable window transparency, font family, font size, and line height. All of them can be set through a config file (more info in the Configuration section below), but you can also set the font size temporarily (session-only) using keyboard shortcuts.
+- In-document search (`Ctrl+F`): a search bar at the top of the tab with a live `current/total` match counter. Enter jumps to the next match (wrapping around), Escape closes it. No replace.
 - Follows the system light/dark theme.
 
 ## Requirements
@@ -79,6 +80,7 @@ meson install -C build
 | Close tab         | `Ctrl+W`       |
 | Reopen closed tab | `Ctrl+Shift+T` |
 | Duplicate line    | `Ctrl+D`       |
+| Find              | `Ctrl+F`       |
 | Increase font size | `Ctrl++` |
 | Decrease font size | `Ctrl+-` |
 | Reset font size   | `Ctrl+0`       |

@@ -16,6 +16,7 @@ public class EditorTab : Gtk.Box, TextSource {
     private AutoSaver auto_saver;
     private bool loading = false;
     private Adw.Banner? notice_banner = null;
+    private EditorSearch search;
 
     public EditorTab (Document document, AutoSaver auto_saver, string? notice = null) {
         Object (orientation: Gtk.Orientation.VERTICAL);
@@ -56,6 +57,11 @@ public class EditorTab : Gtk.Box, TextSource {
             }
         });
 
+        // In-document search bar, hidden until Ctrl+F. It sits at the very top
+        // of the tab, directly under the window's header bar.
+        this.search = new EditorSearch (this.view);
+        this.append (this.search.bar);
+
         if (notice != null) {
             // Connected as a method handler so Vala emits g_signal_connect_object
             // (weak): a lambda capturing the banner would make the banner and
@@ -82,6 +88,16 @@ public class EditorTab : Gtk.Box, TextSource {
     /** True when this is a path-less document with content never saved to a file. */
     public bool has_unsaved_content () {
         return document.is_new && view.buffer.get_char_count () > 0;
+    }
+
+    /** Show the search bar, or hide it if it is already shown (Ctrl+F). */
+    public void toggle_search () {
+        this.search.toggle ();
+    }
+
+    /** Hide the search bar if it is shown. */
+    public void close_search () {
+        this.search.close ();
     }
 
     /** Delete this document's scratch file, if it has one. */

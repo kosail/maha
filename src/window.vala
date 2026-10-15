@@ -68,10 +68,7 @@ public class MainWindow : Adw.ApplicationWindow {
         this.tab_view = new Adw.TabView ();
         this.tab_view.close_page.connect (on_close_page);
         this.tab_view.page_detached.connect (on_page_detached);
-        this.tab_view.notify["selected-page"].connect (() => {
-            record_session ();
-            update_title_widget ();
-        });
+        this.tab_view.notify["selected-page"].connect (on_selected_page_changed);
         this.tab_view.notify["n-pages"].connect (update_title_widget);
 
         build_chrome ();
@@ -248,6 +245,14 @@ public class MainWindow : Adw.ApplicationWindow {
         var tab = current_tab ();
         if (tab != null && !tab.document.read_only) {
             tab.duplicate_current_line ();
+        }
+    }
+
+    /** Toggle the in-document search bar of the active tab (Ctrl+F). */
+    public void find () {
+        var tab = current_tab ();
+        if (tab != null) {
+            tab.toggle_search ();
         }
     }
 
@@ -553,6 +558,7 @@ public class MainWindow : Adw.ApplicationWindow {
         controller.add_shortcut (make_shortcut ("<Control>s", "app.save"));
         controller.add_shortcut (make_shortcut ("<Control>w", "app.close-tab"));
         controller.add_shortcut (make_shortcut ("<Control>d", "app.duplicate-line"));
+        controller.add_shortcut (make_shortcut ("<Control>f", "app.find"));
         controller.add_shortcut (make_shortcut ("<Control><Shift>t", "app.reopen-tab"));
         controller.add_shortcut (make_shortcut ("<Control>q", "app.quit"));
         // Runtime font zoom (app-wide, not persisted). Ctrl+= (no shift) and
@@ -859,6 +865,25 @@ public class MainWindow : Adw.ApplicationWindow {
         var tab = current_tab ();
         this.single_title.set_text (tab != null ? tab_title (tab.document) : "");
         this.header.set_title_widget (this.single_title);
+    }
+
+    private void on_selected_page_changed () {
+        // Only one search bar may be open at a time: dismiss the others so the
+        // active tab's entry is the sole key-capture target.
+        var selected = this.tab_view.get_selected_page ();
+        int pages = this.tab_view.get_n_pages ();
+        for (int i = 0; i < pages; i++) {
+            var page = this.tab_view.get_nth_page (i);
+            if (page == selected) {
+                continue;
+            }
+            var tab = page.get_child () as EditorTab;
+            if (tab != null) {
+                tab.close_search ();
+            }
+        }
+        record_session ();
+        update_title_widget ();
     }
 
     /** Refresh the unsaved marker on every tab (and the single-tab label). */
