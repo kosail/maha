@@ -1,8 +1,9 @@
 #!/bin/sh
 #
-# Headless smoke test: launches the real maha binary under Xvfb, sends Ctrl+S
-# through the shortcut controller, and fails if the process dies. This guards
-# the shortcut-controller lifetime, which is pure GTK and not covered by the
+# Headless smoke test: launches the real maha binary under Xvfb, sends Ctrl+S,
+# Ctrl+N and the font-zoom shortcuts through the shortcut controller, and fails
+# if the process dies. This guards the shortcut-controller lifetime and the
+# runtime zoom's CSS provider reload, which are pure GTK and not covered by the
 # core unit tests.
 #
 # Skips (exit 77) when the required tooling (Xvfb, xdotool, dbus-run-session)
@@ -85,16 +86,26 @@ fi
 xdotool mousemove 400 300 click 1
 sleep 1
 xdotool key ctrl+s
+sleep 1
+# New-tab alias and runtime font zoom (app-wide, not persisted): all must be
+# crash-free.
+xdotool key ctrl+n
+sleep 0.5
+xdotool key ctrl+plus
+sleep 0.5
+xdotool key ctrl+minus
+sleep 0.5
+xdotool key ctrl+0
 sleep 2
 
 if kill -0 "$APP_PID" 2>/dev/null; then
-    echo "PASS: maha survived Ctrl+S"
+    echo "PASS: maha survived Ctrl+S, Ctrl+N and font zoom"
     exit 0
 fi
 
 wait "$APP_PID"
 STATUS=$?
-echo "FAIL: maha died after Ctrl+S (status $STATUS)"
+echo "FAIL: maha died after keyboard exercise (status $STATUS)"
 echo "--- application output ---"
 cat "$LOG"
 exit 1

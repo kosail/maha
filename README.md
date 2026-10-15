@@ -39,7 +39,7 @@ But I have to be honest with you: I needed this app, but I don't have for it... 
 - Closing a new tab that still has unsaved text asks whether to save, discard, or cancel.
 - Session restore: reopens every tab from the previous run (files and unsaved tabs), with the previously active tab focused.
 - Opens files from the command line (`maha file.txt`) or a file manager.
-- Configurable window transparency, font family, font size, and line height.
+- Configurable window transparency, font family, font size, and line height. All of them can be set through a config file (more info in the Configuration section below), but you can also set the font size temporarily (session-only) using keyboard shortcuts.
 - Follows the system light/dark theme.
 
 ## Requirements
@@ -78,6 +78,8 @@ meson install -C build
 | Save              | `Ctrl+S`       |
 | Close tab         | `Ctrl+W`       |
 | Reopen closed tab | `Ctrl+Shift+T` |
+| Increase font size | `Ctrl++` |
+| Decrease font size | `Ctrl+-` |
 | Quit              | `Ctrl+Q`       |
 
 ## Configuration

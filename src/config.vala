@@ -9,6 +9,10 @@ public class Config : GLib.Object {
     public const string DEFAULT_FONT = "Monospace";
     public const int DEFAULT_FONT_SIZE = 11;
     public const int MIN_FONT_SIZE = 1;
+    /** Runtime zoom bounds (Ctrl +plus / Ctrl +minus), independent of the
+     *  config-validity floor above. Not persisted. */
+    public const int MIN_ZOOM_FONT_SIZE = 6;
+    public const int MAX_ZOOM_FONT_SIZE = 72;
     public const double DEFAULT_TRANSPARENCY = 0.85;
     public const double MIN_TRANSPARENCY = 0.05;
     public const double DEFAULT_LINE_HEIGHT = 0.0;
@@ -77,6 +81,29 @@ public class Config : GLib.Object {
             }
             return line_height;
         }
+    }
+
+    /**
+     * Clamp `current` into the zoom range, apply `delta`, and clamp again.
+     * Pure integer math so the runtime zoom stepping is unit-testable without
+     * a display. Clamping the base first makes a configured size that sits
+     * outside the zoom range (e.g. 200) step back into range predictably.
+     */
+    public static int zoom_step (int current, int delta) {
+        int clamped = current;
+        if (clamped < MIN_ZOOM_FONT_SIZE) {
+            clamped = MIN_ZOOM_FONT_SIZE;
+        } else if (clamped > MAX_ZOOM_FONT_SIZE) {
+            clamped = MAX_ZOOM_FONT_SIZE;
+        }
+        int next = clamped + delta;
+        if (next < MIN_ZOOM_FONT_SIZE) {
+            return MIN_ZOOM_FONT_SIZE;
+        }
+        if (next > MAX_ZOOM_FONT_SIZE) {
+            return MAX_ZOOM_FONT_SIZE;
+        }
+        return next;
     }
 }
 

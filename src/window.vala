@@ -77,10 +77,6 @@ public class MainWindow : Adw.ApplicationWindow {
         build_chrome ();
         install_shortcuts ();
 
-        // The provider is owned by the display, so the controller itself need
-        // not be kept alive.
-        new ThemeController (config);
-
         restore_session ();
         update_title_widget ();
 
@@ -544,11 +540,20 @@ public class MainWindow : Adw.ApplicationWindow {
         var controller = new Gtk.ShortcutController ();
         controller.set_scope (Gtk.ShortcutScope.GLOBAL);
         controller.add_shortcut (make_shortcut ("<Control>t", "app.new"));
+        controller.add_shortcut (make_shortcut ("<Control>n", "app.new"));
         controller.add_shortcut (make_shortcut ("<Control>o", "app.open"));
         controller.add_shortcut (make_shortcut ("<Control>s", "app.save"));
         controller.add_shortcut (make_shortcut ("<Control>w", "app.close-tab"));
         controller.add_shortcut (make_shortcut ("<Control><Shift>t", "app.reopen-tab"));
         controller.add_shortcut (make_shortcut ("<Control>q", "app.quit"));
+        // Runtime font zoom (app-wide, not persisted). Ctrl+= (no shift) and
+        // Ctrl++ (shift) both zoom in, plus the keypad keys.
+        controller.add_shortcut (make_shortcut ("<Control>plus", "app.zoom-in"));
+        controller.add_shortcut (make_shortcut ("<Control>equal", "app.zoom-in"));
+        controller.add_shortcut (make_shortcut ("<Control>KP_Add", "app.zoom-in"));
+        controller.add_shortcut (make_shortcut ("<Control>minus", "app.zoom-out"));
+        controller.add_shortcut (make_shortcut ("<Control>KP_Subtract", "app.zoom-out"));
+        controller.add_shortcut (make_shortcut ("<Control>0", "app.zoom-reset"));
 
         // Bind to Gtk.Widget.add_controller, which is transfer-full (owned).
         // MainWindow also implements Gtk.ShortcutManager, whose add_controller
@@ -597,7 +602,7 @@ public class MainWindow : Adw.ApplicationWindow {
 
         // Plain flat "+" on the right of the header bar.
         var new_button = new Gtk.Button.from_icon_name ("tab-new-symbolic");
-        new_button.set_tooltip_text ("New tab (Ctrl+T)");
+        new_button.set_tooltip_text ("New tab (Ctrl+T, Ctrl+N)");
         new_button.clicked.connect (() => add_empty_tab ());
         this.header.pack_end (new_button);
 

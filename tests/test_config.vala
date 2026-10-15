@@ -17,6 +17,7 @@ public void register_config_tests () {
     GLib.Test.add_func ("/config/line_height_normal", test_line_height_normal);
     GLib.Test.add_func ("/config/clean_output", test_clean_output);
     GLib.Test.add_func ("/config/nested_parent_created", test_config_nested_parent_created);
+    GLib.Test.add_func ("/config/zoom_step", test_zoom_step);
 }
 
 private void test_creates_default_file () {
@@ -201,6 +202,20 @@ private void test_config_nested_parent_created () {
 
     assert (GLib.FileUtils.test (path, GLib.FileTest.EXISTS));
     assert (config.transparency == Config.DEFAULT_TRANSPARENCY);
+}
+
+private void test_zoom_step () {
+    // Normal stepping in either direction.
+    assert (Config.zoom_step (11, +1) == 12);
+    assert (Config.zoom_step (11, -1) == 10);
+
+    // Clamped at the bounds.
+    assert (Config.zoom_step (Config.MAX_ZOOM_FONT_SIZE, +1) == Config.MAX_ZOOM_FONT_SIZE);
+    assert (Config.zoom_step (Config.MIN_ZOOM_FONT_SIZE, -1) == Config.MIN_ZOOM_FONT_SIZE);
+
+    // A configured size outside the zoom range snaps into range first.
+    assert (Config.zoom_step (Config.MAX_ZOOM_FONT_SIZE + 100, -1) == Config.MAX_ZOOM_FONT_SIZE - 1);
+    assert (Config.zoom_step (0, +1) == Config.MIN_ZOOM_FONT_SIZE + 1);
 }
 
 }

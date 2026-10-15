@@ -8,6 +8,7 @@ public class Application : Adw.Application {
     private Config config;
     private AutoSaver auto_saver;
     private SessionStore session;
+    private ThemeController appearance;
 
     public Application () {
         Object (
@@ -27,6 +28,9 @@ public class Application : Adw.Application {
         }
 
         this.config = new ConfigStore ().load ();
+        // One shared appearance controller for the whole application (the CSS
+        // is display-wide), so the runtime font zoom affects every window.
+        this.appearance = new ThemeController (this.config);
         this.auto_saver = new AutoSaver (config.effective_autosave_ms);
         this.session = new SessionStore ();
 
@@ -53,6 +57,18 @@ public class Application : Adw.Application {
         var quit_action = new GLib.SimpleAction ("quit", null);
         quit_action.activate.connect (on_quit);
         add_action (quit_action);
+
+        var zoom_in_action = new GLib.SimpleAction ("zoom-in", null);
+        zoom_in_action.activate.connect (on_zoom_in);
+        add_action (zoom_in_action);
+
+        var zoom_out_action = new GLib.SimpleAction ("zoom-out", null);
+        zoom_out_action.activate.connect (on_zoom_out);
+        add_action (zoom_out_action);
+
+        var zoom_reset_action = new GLib.SimpleAction ("zoom-reset", null);
+        zoom_reset_action.activate.connect (on_zoom_reset);
+        add_action (zoom_reset_action);
     }
 
     public override void activate () {
@@ -131,6 +147,18 @@ public class Application : Adw.Application {
         if (window != null) {
             window.reopen_last_closed_tab ();
         }
+    }
+
+    private void on_zoom_in () {
+        this.appearance.zoom_in ();
+    }
+
+    private void on_zoom_out () {
+        this.appearance.zoom_out ();
+    }
+
+    private void on_zoom_reset () {
+        this.appearance.zoom_reset ();
     }
 
     private void on_quit () {

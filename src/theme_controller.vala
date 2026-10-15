@@ -12,23 +12,62 @@ extern void add_provider_for_display (Gdk.Display display, Gtk.StyleProvider pro
  * The window (and, by extension, the header bar, the tab strip and the editor
  * body) is painted with `alpha(@theme_bg_color, transparency)`, so every surface
  * shares the same transparency. Only text stays fully opaque.
+ *
+ * The provider is registered against the display and every rule is scoped to
+ * `window.maha`, so a single instance governs the whole application: it is
+ * created once by `Application` (not per window), and the runtime font zoom it
+ * exposes affects every open window at once.
  */
 public class ThemeController : GLib.Object {
     private Config config;
     private Gtk.CssProvider provider;
+    // Font size lives in its own provider so a zoom only reparses one rule.
+    private Gtk.CssProvider font_provider;
+    private int font_size;
 
     public ThemeController (Config config) {
         this.config = config;
         this.provider = new Gtk.CssProvider ();
+        this.font_provider = new Gtk.CssProvider ();
+        this.font_size = config.effective_font_size;
 
         var display = Gdk.Display.get_default ();
         if (display != null) {
             // USER priority so nothing (theme/user stylesheet) outranks the
             // transparency; every rule is scoped to `window.maha`.
             add_provider_for_display (display, provider, Gtk.STYLE_PROVIDER_PRIORITY_USER);
+            add_provider_for_display (display, font_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER);
         }
 
         apply ();
+        load_font ();
+    }
+
+    /** Increase the editor font size by one point, clamped (app-wide). */
+    public void zoom_in () {
+        apply_font (Config.zoom_step (font_size, +1));
+    }
+
+    /** Decrease the editor font size by one point, clamped (app-wide). */
+    public void zoom_out () {
+        apply_font (Config.zoom_step (font_size, -1));
+    }
+
+    /** Restore the configured font size (app-wide). Never persisted. */
+    public void zoom_reset () {
+        apply_font (config.effective_font_size);
+    }
+
+    private void apply_font (int pt) {
+        if (pt == font_size) {
+            return;
+        }
+        font_size = pt;
+        load_font ();
+    }
+
+    private void load_font () {
+        font_provider.load_from_string (build_font_css (font_size));
     }
 
     private void apply () {
@@ -76,7 +115,7 @@ public class ThemeController : GLib.Object {
             family = config.font;
         }
         if (family != "") {
-            css.append ("textview.maha-editor { font-family: \"%s\"; font-size: %dpt; }\n".printf (escape (family), config.effective_font_size));
+            css.append ("textview.maha-editor { font-family: \"%s\"; }\n".printf (escape (family)));
         }
 
         // Line height (user configurable); a multiple of the font size. When
@@ -87,6 +126,12 @@ public class ThemeController : GLib.Object {
         }
 
         return css.str;
+    }
+
+    // The editor font size, in its own provider so a runtime zoom reparses
+    // only this rule. See the constructor.
+    private static string build_font_css (int pt) {
+        return "textview.maha-editor { font-size: %dpt; }\n".printf (pt);
     }
 
     private static string escape (string value) {
