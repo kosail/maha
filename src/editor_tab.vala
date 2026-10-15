@@ -128,6 +128,54 @@ public class EditorTab : Gtk.Box, TextSource {
         return true;
     }
 
+    /**
+     * Duplicate the line the cursor is on and insert the copy directly below,
+     * leaving the cursor on the new line at the same column (like VS Code's
+     * "duplicate line"). A whole operation, so a single undo reverts it.
+     */
+    public void duplicate_current_line () {
+        if (document.read_only) {
+            return;
+        }
+
+        Gtk.TextBuffer buffer = view.buffer;
+        Gtk.TextIter cursor;
+        buffer.get_iter_at_mark (out cursor, buffer.get_insert ());
+        int line = cursor.get_line ();
+
+        Gtk.TextIter line_start;
+        buffer.get_iter_at_line (out line_start, line);
+        int column = cursor.get_offset () - line_start.get_offset ();
+
+        Gtk.TextIter tail;
+        Gtk.TextIter insert_at;
+        int copy_start;
+        string text;
+        if (buffer.get_iter_at_line (out tail, line + 1)) {
+            // The line ends with a newline: copy it verbatim and insert at the
+            // start of the following line.
+            text = buffer.get_text (line_start, tail, false);
+            copy_start = tail.get_offset ();
+        } else {
+            // The line is the last one and has no trailing newline: add one, so
+            // the copy is a separate line rather than appended to the original.
+            buffer.get_end_iter (out tail);
+            text = "\n" + buffer.get_text (line_start, tail, false);
+            copy_start = tail.get_offset () + 1;
+        }
+        insert_at = tail;
+
+        buffer.begin_user_action ();
+        buffer.insert (ref insert_at, text, -1);
+
+        Gtk.TextIter place;
+        buffer.get_iter_at_offset (out place, copy_start + column);
+        buffer.place_cursor (place);
+        buffer.end_user_action ();
+
+        view.scroll_mark_onscreen (buffer.get_insert ());
+    }
+
     private void on_changed () {
         if (loading || document.read_only) {
             return;

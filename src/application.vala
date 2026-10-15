@@ -46,6 +46,10 @@ public class Application : Adw.Application {
         save_action.activate.connect (on_save);
         add_action (save_action);
 
+        var duplicate_line_action = new GLib.SimpleAction ("duplicate-line", null);
+        duplicate_line_action.activate.connect (on_duplicate_line);
+        add_action (duplicate_line_action);
+
         var close_tab_action = new GLib.SimpleAction ("close-tab", null);
         close_tab_action.activate.connect (on_close_tab);
         add_action (close_tab_action);
@@ -139,6 +143,13 @@ public class Application : Adw.Application {
         var window = this.active_window as MainWindow;
         if (window != null) {
             window.close_current_tab ();
+        }
+    }
+
+    private void on_duplicate_line () {
+        var window = this.active_window as MainWindow;
+        if (window != null) {
+            window.duplicate_line ();
         }
     }
 

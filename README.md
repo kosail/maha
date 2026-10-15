@@ -73,14 +73,18 @@ meson install -C build
 
 | Action            | Shortcut       |
 | ----------------- | -------------- |
-| New tab           | `Ctrl+T`       |
+| New tab           | `Ctrl+T`, `Ctrl+N` |
 | Open              | `Ctrl+O`       |
 | Save              | `Ctrl+S`       |
 | Close tab         | `Ctrl+W`       |
 | Reopen closed tab | `Ctrl+Shift+T` |
+| Duplicate line    | `Ctrl+D`       |
 | Increase font size | `Ctrl++` |
 | Decrease font size | `Ctrl+-` |
+| Reset font size   | `Ctrl+0`       |
 | Quit              | `Ctrl+Q`       |
+
+Font size changes are runtime only: they apply to every open window but are never written to the config, so the configured size returns on the next launch.
 
 ## Configuration
 
@@ -117,7 +121,7 @@ The session file at `~/.config/maha/session` remembers every open tab (files and
 meson test -C build
 ```
 
-The core suite has 64 tests covering document state, atomic I/O, corruption recovery, binary detection, config parsing, autosave, and session handling. There is also a headless GUI smoke test that launches the real binary under Xvfb and sends `Ctrl+S`, which guards the GTK shortcut controller that the unit tests cannot reach.
+The core suite has 69 tests covering document state, atomic I/O, corruption recovery, binary detection, config parsing, autosave, and session handling. There is also a headless GUI smoke test that launches the real binary under Xvfb and exercises `Ctrl+S`, `Ctrl+N`, `Ctrl+D` and the font-zoom shortcuts, which guards the GTK shortcut controller that the unit tests cannot reach.
 
 ## Troubleshooting
 

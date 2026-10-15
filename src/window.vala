@@ -243,6 +243,14 @@ public class MainWindow : Adw.ApplicationWindow {
         add_empty_tab ();
     }
 
+    /** Duplicate the current line in the active tab (Ctrl+D). */
+    public void duplicate_line () {
+        var tab = current_tab ();
+        if (tab != null && !tab.document.read_only) {
+            tab.duplicate_current_line ();
+        }
+    }
+
     /**
      * Close the pristine, empty "New tab" placeholder, if one is present and
      * other tabs exist. Used when files are opened so a launch that passes a
@@ -544,6 +552,7 @@ public class MainWindow : Adw.ApplicationWindow {
         controller.add_shortcut (make_shortcut ("<Control>o", "app.open"));
         controller.add_shortcut (make_shortcut ("<Control>s", "app.save"));
         controller.add_shortcut (make_shortcut ("<Control>w", "app.close-tab"));
+        controller.add_shortcut (make_shortcut ("<Control>d", "app.duplicate-line"));
         controller.add_shortcut (make_shortcut ("<Control><Shift>t", "app.reopen-tab"));
         controller.add_shortcut (make_shortcut ("<Control>q", "app.quit"));
         // Runtime font zoom (app-wide, not persisted). Ctrl+= (no shift) and
