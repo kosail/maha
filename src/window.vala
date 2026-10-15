@@ -446,7 +446,7 @@ public class MainWindow : Adw.ApplicationWindow {
                         } else {
                             var page = this.tab_view.get_page (tab);
                             if (page != null) {
-                                page.set_title (trim_title (tab.document.display_name));
+                                page.set_title (tab_title (tab.document));
                             }
                             update_title_widget ();
                             record_session ();
@@ -838,7 +838,11 @@ public class MainWindow : Adw.ApplicationWindow {
     private Adw.TabPage add_tab (Document document, string? notice = null) {
         var tab = new EditorTab (document, this.auto_saver, notice);
         var page = this.tab_view.append (tab);
-        page.set_title (trim_title (document.display_name));
+        page.set_title (tab_title (document));
+        // Keep the unsaved dot in sync as the document is edited and saved.
+        // A method handler, so Vala connects it weakly (g_signal_connect_object)
+        // and it never keeps this window or the document alive.
+        document.notify["dirty"].connect (on_document_dirty);
         this.tab_view.set_selected_page (page);
         return page;
     }
@@ -853,8 +857,34 @@ public class MainWindow : Adw.ApplicationWindow {
             return;
         }
         var tab = current_tab ();
-        this.single_title.set_text (tab != null ? trim_title (tab.document.display_name) : "");
+        this.single_title.set_text (tab != null ? tab_title (tab.document) : "");
         this.header.set_title_widget (this.single_title);
+    }
+
+    /** Refresh the unsaved marker on every tab (and the single-tab label). */
+    private void on_document_dirty () {
+        int pages = this.tab_view.get_n_pages ();
+        for (int i = 0; i < pages; i++) {
+            var page = this.tab_view.get_nth_page (i);
+            var tab = page.get_child () as EditorTab;
+            if (tab != null) {
+                page.set_title (tab_title (tab.document));
+            }
+        }
+        update_title_widget ();
+    }
+
+    /** Marker prefixed to a title while the document has unsaved changes. */
+    private const string DIRTY_MARKER = "● ";
+
+    /**
+     * The title shown for a document: its (trimmed) name, prefixed with a dot
+     * while it has unsaved changes. The marker clears once the autosave or a
+     * manual save sets the document clean.
+     */
+    private static string tab_title (Document doc) {
+        string name = trim_title (doc.display_name);
+        return doc.dirty ? DIRTY_MARKER + name : name;
     }
 
     /**

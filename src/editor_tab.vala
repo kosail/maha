@@ -15,6 +15,7 @@ public class EditorTab : Gtk.Box, TextSource {
 
     private AutoSaver auto_saver;
     private bool loading = false;
+    private Adw.Banner? notice_banner = null;
 
     public EditorTab (Document document, AutoSaver auto_saver, string? notice = null) {
         Object (orientation: Gtk.Orientation.VERTICAL);
@@ -40,6 +41,10 @@ public class EditorTab : Gtk.Box, TextSource {
         this.loading = false;
 
         this.view.buffer.changed.connect (on_changed);
+        // GTK flips the buffer's modified flag *after* emitting `changed`, so
+        // the dirty flag is derived from `modified-changed` (which fires once
+        // the flag has actually changed) rather than read inside `changed`.
+        this.view.buffer.modified_changed.connect (on_modified_changed);
 
         // Keep GTK's "modified since last save" flag and the document's dirty
         // flag in lockstep. Whenever the document is persisted (manually or by
@@ -52,11 +57,14 @@ public class EditorTab : Gtk.Box, TextSource {
         });
 
         if (notice != null) {
-            var banner = new Adw.Banner ((!) notice);
-            banner.set_revealed (true);
-            banner.set_button_label ("Dismiss");
-            banner.button_clicked.connect (() => banner.set_revealed (false));
-            this.append (banner);
+            // Connected as a method handler so Vala emits g_signal_connect_object
+            // (weak): a lambda capturing the banner would make the banner and
+            // this tab reference each other and leak both.
+            this.notice_banner = new Adw.Banner ((!) notice);
+            this.notice_banner.set_revealed (true);
+            this.notice_banner.set_button_label ("Dismiss");
+            this.notice_banner.button_clicked.connect (on_notice_dismissed);
+            this.append (this.notice_banner);
         }
 
         var scroller = new Gtk.ScrolledWindow ();
@@ -176,13 +184,33 @@ public class EditorTab : Gtk.Box, TextSource {
         view.scroll_mark_onscreen (buffer.get_insert ());
     }
 
+    private void on_notice_dismissed () {
+        if (this.notice_banner != null) {
+            this.notice_banner.set_revealed (false);
+        }
+    }
+
     private void on_changed () {
         if (loading || document.read_only) {
             return;
         }
-        // Mirror GTK's own modified state (it resets to false when the buffer
-        // returns to the last saved text); do not force dirty on every change,
-        // or an undo back to the original would still count as unsaved.
+        // Re-arm the debounce on every edit so the save waits until typing
+        // stops. The dirty flag itself is driven by `on_modified_changed`.
+        if (document.dirty) {
+            auto_saver.schedule (document, this);
+        }
+    }
+
+    /**
+     * Mirror GTK's modified flag onto the document. This is the authoritative
+     * signal: it fires once the flag has actually flipped, so the first edit of
+     * a clean document marks it dirty (and arms the autosave) immediately, and
+     * an undo back to the saved text marks it clean again.
+     */
+    private void on_modified_changed () {
+        if (loading || document.read_only) {
+            return;
+        }
         document.dirty = view.buffer.get_modified ();
         if (document.dirty) {
             auto_saver.schedule (document, this);
